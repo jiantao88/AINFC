@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS previews (
   player_id TEXT PRIMARY KEY, json TEXT NOT NULL, job_id TEXT, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS saved_cards (player_id TEXT PRIMARY KEY, json TEXT NOT NULL, saved_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS moments (
+  player_id TEXT PRIMARY KEY, text TEXT NOT NULL, drafted_by_ai INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS readings (
+  material_id TEXT PRIMARY KEY, player_id TEXT NOT NULL, json TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS faults (player_id TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (player_id, kind));
 `;
 

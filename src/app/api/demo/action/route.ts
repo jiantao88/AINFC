@@ -11,10 +11,10 @@ import type { Score } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const FAULTS = ["upload_fail", "ocr_fail", "llm_fail", "generate_fail"] as const;
+const FAULTS = ["upload_fail", "ocr_fail", "vision_fail", "llm_fail", "generate_fail"] as const;
 
 function wipePlayerData(pid: string) {
-  for (const t of ["materials", "scores", "ocr", "jobs", "previews", "saved_cards", "faults", "claim_attempts"]) {
+  for (const t of ["materials", "scores", "ocr", "jobs", "previews", "saved_cards", "faults", "claim_attempts", "moments", "readings"]) {
     run(`DELETE FROM ${t} WHERE player_id=?`, pid);
   }
   removePlayerMedia(pid);
@@ -36,12 +36,20 @@ function fillMaterials(pid: string) {
   const p = getPlayer(pid)!;
   const ev = getEvent(p.event_id);
   if (listMaterials(pid, "photo").length === 0) {
-    for (const rel of ["assets/02-山脊奔跑.png"]) attachFixtureFile(pid, "photo", rel);
-    const extra = path.join(process.cwd(), "docs", "demo-assets", "xiangzhi");
-    for (const f of ["01-林间爬坡.png", "03-完赛合影.png"]) {
-      const abs = path.join(extra, f);
-      if (fs.existsSync(abs)) attachFixtureFile(pid, "photo", path.relative(fixturePath(""), abs));
+    // 演示素材:docs/demo-assets/xiangzhi 下的三张照片(AI 合成,非实拍)。缺失时跳过
+    const dir = path.join(process.cwd(), "docs", "demo-assets", "xiangzhi");
+    for (const f of ["02-山脊奔跑.png", "01-林间爬坡.png", "03-完赛合影.png"]) {
+      attachFixtureFile(pid, "photo", path.join(dir, f));
     }
+  }
+  if (!all("SELECT 1 FROM moments WHERE player_id=?", pid).length) {
+    run(
+      "INSERT INTO moments (player_id, text, drafted_by_ai, updated_at) VALUES (?,?,?,?)",
+      pid,
+      "上坡的时候腿很沉,可回头看到山下的城市亮起来,突然觉得这一路很值。最后和朋友们一起举起奖牌的时候,我笑得停不下来。",
+      0,
+      Date.now(),
+    );
   }
   if (listMaterials(pid, "route").length === 0 && ev.referenceRoute) {
     attachFixtureFile(pid, "route", ev.referenceRoute.file);

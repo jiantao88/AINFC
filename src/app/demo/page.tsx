@@ -20,6 +20,7 @@ interface Row {
 const FAULT_LABEL: Record<string, string> = {
   upload_fail: "上传失败",
   ocr_fail: "成绩识别失败",
+  vision_fail: "照片识别失败",
   llm_fail: "文案模型失败",
   generate_fail: "生成失败",
 };

@@ -221,6 +221,8 @@ export function Collect({ state, refresh }: { state: State; refresh: () => Promi
         <PendingList kind="route" {...up} />
       </section>
 
+      <MomentSection state={state} refresh={refresh} say={say} />
+
       <ScoreSection state={state} refresh={refresh} up={up} say={say} />
 
       <div className="sticky">
@@ -383,6 +385,98 @@ function ScoreSection({
         </button>
         {s && <button className="btn" onClick={clear}>清除成绩</button>}
       </div>
+    </section>
+  );
+}
+
+function MomentSection({ state, refresh, say }: { state: State; refresh: () => Promise<unknown>; say: (m: string) => void }) {
+  const pid = state.player.id;
+  const saved = state.moment;
+  const [text, setText] = useState(saved?.text ?? "");
+  const [ai, setAi] = useState(saved?.draftedByAi ?? false);
+  const [drafting, setDrafting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const dirty = text.trim() !== (saved?.text ?? "") || ai !== (saved?.draftedByAi ?? false);
+  const hasPhoto = state.materials.photos.length > 0;
+
+  async function draft() {
+    setDrafting(true);
+    setErr(null);
+    setNote(null);
+    const r = await post(`/api/p/${pid}/moment`, {});
+    setDrafting(false);
+    if (!r.ok) {
+      setErr(r.data.error ?? "起草失败,请自己写");
+      return;
+    }
+    const d = r.data as { text: string; basedOn: number };
+    setText(d.text);
+    setAi(true);
+    setNote(`AI 根据 ${d.basedOn} 张照片里看得见的内容起草了这段话。它不知道你真实的感受,请改成你自己的话,再点保存。`);
+  }
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    const r = await api(`/api/p/${pid}/moment`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, draftedByAi: ai }),
+    });
+    setSaving(false);
+    if (!r.ok) {
+      setErr(r.data.error ?? "保存失败");
+      return;
+    }
+    say(text.trim() ? "已保存这一刻" : "已清除");
+    await refresh();
+  }
+
+  return (
+    <section className="card" aria-labelledby="h-moment">
+      <div className="row between">
+        <h2 id="h-moment">写下这一刻</h2>
+        {saved ? (
+          <span className={`tag ${saved.draftedByAi ? "warn" : "ok"}`} data-testid="moment-tag">{saved.draftedByAi ? "AI 草稿" : "已保存"}</span>
+        ) : (
+          <span className="tag">选填</span>
+        )}
+      </div>
+      <p className="muted" style={{ margin: "2px 0 8px" }}>
+        冲线的心情、赛道上的小故事、补给站的片段。游记的情绪和细节就来自你写的这段话,写得越具体,游记越像你。
+      </p>
+      <textarea
+        className="input"
+        value={text}
+        maxLength={600}
+        placeholder="例如:上坡的时候腿很沉,可是回头看到山下的城市亮起来,突然觉得很值……"
+        onChange={(e) => {
+          setText(e.target.value);
+          setAi(false);
+          setNote(null);
+        }}
+        aria-label="这一刻"
+        data-testid="moment-text"
+      />
+      <div className="row between" style={{ marginTop: 4 }}>
+        <span className="note">{text.length}/600</span>
+        {ai && <span className="tag warn" data-testid="moment-ai-flag">内容来自 AI 草稿</span>}
+      </div>
+      {note && <p className="note" style={{ color: "var(--warn)" }} role="status" data-testid="moment-note">{note}</p>}
+      {err && <p className="err" role="alert" data-testid="moment-error">{err}</p>}
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn small primary" onClick={save} disabled={saving || !dirty} data-testid="moment-save">
+          {saving ? "保存中…" : "保存"}
+        </button>
+        {state.visionEnabled && (
+          <button className="btn small" onClick={draft} disabled={drafting || !hasPhoto} data-testid="moment-draft" title={hasPhoto ? "" : "先上传照片"}>
+            {drafting ? "AI 正在看照片…约 30 秒" : "AI 帮我起草"}
+          </button>
+        )}
+      </div>
+      {!hasPhoto && state.visionEnabled && <p className="note" style={{ margin: "6px 0 0" }}>先上传照片,AI 才能看着照片帮你起草。</p>}
     </section>
   );
 }

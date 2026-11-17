@@ -55,6 +55,15 @@ export const POST = guarded(async (req, pid) => {
       next.text = t;
       next.textSource = "user";
     }
+    if (body.journal && typeof body.journal === "object") {
+      const j = body.journal as Record<string, unknown>;
+      const cur = next.journal ?? { title: "", body: "", source: "user" as const };
+      const title = typeof j.title === "string" ? j.title.trim() : cur.title;
+      const text = typeof j.body === "string" ? j.body.trim() : cur.body;
+      if (!title || title.length > 40) return err(400, "游记标题长度应为 1 到 40 字", { field: "journalTitle" });
+      if (text.length < 1 || text.length > 1500) return err(400, "游记正文应为 1 到 1500 字", { field: "journalBody" });
+      next.journal = { title, body: text, source: "user" };
+    }
     if (typeof body.coverMaterialId === "string") {
       if (!next.photoIds.includes(body.coverMaterialId)) return err(400, "封面必须是已上传的照片", { field: "coverMaterialId" });
       next.coverMaterialId = body.coverMaterialId;

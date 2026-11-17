@@ -62,11 +62,30 @@ export type CardRoute =
   | { kind: "reference"; points: [number, number][] }
   | { kind: "screenshot"; materialId: string };
 
+export interface PhotoReading {
+  scene: string;
+  people: string;
+  gear: string;
+  mood: string;
+  uncertain: string[];
+}
+
+export interface JournalView {
+  title: string;
+  body: string;
+  /** llm: 模型根据"这一刻"和照片写;template: 固定模板;user: 用户改过 */
+  source: "llm" | "template" | "user";
+}
+
 export interface Card {
   version: 1;
   title: string;
   text: string;
   textSource: "llm" | "template" | "user" | "fixture";
+  /** 游记:有情绪的长文。老数据没有这个字段 */
+  journal?: JournalView | null;
+  /** 选手自己写的"这一刻",生成时的快照 */
+  moment?: string | null;
   event: { name: string; date: string; isPlaceholder: boolean };
   player: { name: string; bib: string };
   score: Pick<Score, "elapsedTime" | "groupName" | "groupRank" | "source"> | null;
@@ -116,6 +135,10 @@ export interface State {
     scoreImage: MaterialView | null;
   };
   score: Score | null;
+  /** 选手写的"这一刻";draftedByAi 表示内容来自 AI 草稿且还没被用户改过 */
+  moment: { text: string; draftedByAi: boolean } | null;
+  /** 照片识别是否可用(需要配置大模型) */
+  visionEnabled: boolean;
   ocr: OcrResult | null;
   ocrEnabled: boolean;
   job: JobView | null;

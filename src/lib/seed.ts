@@ -35,13 +35,14 @@ export function loadFixturePlayers(): FixturePlayer[] {
   return JSON.parse(fs.readFileSync(fixturePath("players.json"), "utf8"));
 }
 
-/** 把测试数据包里的一个文件作为素材写入某选手名下。文件缺失时返回 null,不抛错 */
+/** 把测试数据包里的一个文件作为素材写入某选手名下。文件缺失时返回 null,不抛错。
+ *  rel 可以是相对 docs/demo-fixtures 的路径,也可以是绝对路径(如 docs/demo-assets 下的素材) */
 export function attachFixtureFile(
   playerId: string,
   kind: "photo" | "route" | "score_image",
   rel: string,
 ): string | null {
-  const file = fixturePath(rel);
+  const file = path.isAbsolute(rel) ? rel : fixturePath(rel);
   if (!fs.existsSync(file)) return null;
   const buf = fs.readFileSync(file);
   const id = newId();

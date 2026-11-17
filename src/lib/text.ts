@@ -50,14 +50,16 @@ export function templateText(f: Facts): string {
   return parts.join("");
 }
 
-/** 产品文档:不得补写伤病、天气、心理感受或沿途事件等未提供事实 */
-const FORBIDDEN: { re: RegExp; why: string }[] = [
-  { re: /受伤|扭伤|拉伤|抽筋|摔倒|摔了|跌倒|崴|磨破|水泡|疼|痛|伤痛/, why: "伤病" },
-  { re: /天气|下雨|雨|雪|晴|阴天|大风|高温|寒冷|炎热|冷风|烈日|雾|气温/, why: "天气" },
-  { re: /很累|太累|好累|累了|累坏|累得|疲惫|疲劳|坚持|咬牙|放弃|激动|兴奋|感动|紧张|害怕|开心|快乐|喜悦|自豪|泪|哭|心跳|喘|汗/, why: "心理或身体感受" },
-  { re: /遇到|碰到|偶遇|迷路|补给站|休息了|停下|陪伴|同伴|队友|朋友|家人|欢呼|加油声|观众/, why: "沿途事件或人物" },
-  { re: /官方认证|官方成绩|破纪录|第一名|冠军|夺冠|PB|个人最好/, why: "未经确认的成绩表述" },
-  { re: /配速|每公里|km\/h|公里每小时/, why: "配速" },
+/**
+ * 不得编造的事实类内容。心情、感受不在此列(游记允许写情绪)。
+ * 这些词只有在选手自己写的话或照片识别结果里出现过,才允许出现在文案里。
+ */
+const FORBIDDEN: { re: RegExp; why: string; grounded: boolean }[] = [
+  { re: /受伤|扭伤|拉伤|抽筋|摔倒|摔了|跌倒|崴|磨破|水泡|疼|痛|伤痛/g, why: "伤病", grounded: true },
+  { re: /天气|下雨|雨|雪|晴|阴天|大风|高温|寒冷|炎热|冷风|烈日|雾|气温/g, why: "天气", grounded: true },
+  { re: /遇到|碰到|偶遇|迷路|补给站|休息了|停下|家人|欢呼|加油声|观众/g, why: "沿途事件或人物", grounded: true },
+  { re: /官方认证|官方成绩|破纪录|第一名|冠军|夺冠|PB|个人最好/g, why: "未经确认的成绩表述", grounded: false },
+  { re: /配速|每公里|km\/h|公里每小时/g, why: "配速", grounded: false },
 ];
 
 const CN_DIGIT: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
@@ -87,16 +89,26 @@ function cnToArabic(text: string): string {
 
 export type TextCheck = { ok: true } | { ok: false; reasons: string[] };
 
-export function checkText(text: string, f: Facts): TextCheck {
+export interface CheckOptions {
+  min?: number;
+  max?: number;
+  /** 选手自己写的话 + 照片识别结果。其中出现过的内容,允许被引用 */
+  sources?: string;
+}
+
+export function checkText(text: string, f: Facts, opts: CheckOptions = {}): TextCheck {
   const reasons: string[] = [];
   const t = text.trim();
-  if (t.length < 20) reasons.push("文案过短");
-  if (t.length > 160) reasons.push("文案过长");
+  const sources = opts.sources ?? "";
+  if (t.length < (opts.min ?? 20)) reasons.push("文案过短");
+  if (t.length > (opts.max ?? 160)) reasons.push("文案过长");
 
-  for (const { re, why } of FORBIDDEN) {
-    // 允许原样引用确认过的事实里的字(如赛事名里含"雪")
-    const stripped = t.split(f.eventName).join("");
-    if (re.test(stripped)) reasons.push(`含${why}类内容`);
+  // 允许原样引用确认过的事实里的字(如赛事名里含"雪")
+  const stripped = t.split(f.eventName).join("");
+  for (const { re, why, grounded } of FORBIDDEN) {
+    const hits = [...stripped.matchAll(re)].map((m) => m[0]);
+    const bad = grounded ? hits.filter((h) => !sources.includes(h)) : hits;
+    if (bad.length) reasons.push(`含${why}类内容:${[...new Set(bad)].join("、")}`);
   }
 
   // 文案里出现的每个数字必须来自事实。先把中文数字和"X小时Y分Z秒"统一成阿拉伯数字再核对
@@ -116,6 +128,7 @@ export function checkText(text: string, f: Facts): TextCheck {
   addNums(f.photoCount);
   addNums(f.eventName);
   addNums(f.group);
+  addNums(sources || null);
   const normalized = cnToArabic(t);
   const seen = normalized.match(/\d+(?:\.\d+)?/g) ?? [];
   for (const n of seen) {
@@ -143,7 +156,7 @@ export function checkText(text: string, f: Facts): TextCheck {
 
   // 参考路线不是选手的实际行走记录,不能写成选手完成、跑过、经过
   if (f.routeKind !== "personal") {
-    if (/(完成|跑完|走完|走过|跑过|穿越|翻越|途经|经过|抵达|登顶|征服|挑战了?).{0,6}(路线|赛道|山脊|香植线|香山|植物园|山|线)/.test(t)) {
+    if (/(完成|跑完|走完|走过|跑过|穿越|翻越|途经|经过|抵达|登顶|征服|挑战了?).{0,6}(路线|赛道|香植线|香山|植物园)/.test(t)) {
       reasons.push("把参考路线写成了选手的实际经历");
     }
   }

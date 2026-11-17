@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Card, State } from "@/lib/types";
 import { CardView } from "./CardView";
+import { JournalView } from "./Journal";
 import { post } from "./client";
 
 export function Preview({ state, refresh }: { state: State; refresh: () => Promise<unknown> }) {
@@ -17,6 +18,8 @@ export function Preview({ state, refresh }: { state: State; refresh: () => Promi
   const [busy, setBusy] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [draft, setDraft] = useState<Card>(card);
+  const [jTitle, setJTitle] = useState(card.journal?.title ?? "");
+  const [jBody, setJBody] = useState(card.journal?.body ?? "");
 
   async function edit(body: Record<string, unknown>, okText: string) {
     setBusy("edit");
@@ -64,8 +67,28 @@ export function Preview({ state, refresh }: { state: State; refresh: () => Promi
 
       <CardView card={draft} pid={pid} version={version} />
 
+      <JournalView card={draft} pid={pid} />
+
+      {draft.journal && (
+        <section className="card">
+          <h2>修改游记</h2>
+          <p className="note">想改的地方直接改。单独一行的 [图1]、[图2] 是照片的位置,可以剪切移动或删除。保存后这篇游记标为“你已修改”。</p>
+          <label className="field">
+            <span>游记标题</span>
+            <input className="input" value={jTitle} onChange={(e) => setJTitle(e.target.value)} maxLength={40} data-testid="edit-journal-title" />
+          </label>
+          <label className="field">
+            <span>游记正文(段落之间空一行)</span>
+            <textarea className="input" style={{ minHeight: 220 }} value={jBody} onChange={(e) => setJBody(e.target.value)} maxLength={1500} data-testid="edit-journal-body" />
+          </label>
+          <button className="btn" disabled={busy !== null} onClick={() => edit({ journal: { title: jTitle, body: jBody } }, "游记已更新")} data-testid="apply-journal">
+            应用游记修改
+          </button>
+        </section>
+      )}
+
       <section className="card">
-        <h2>回忆文案</h2>
+        <h2>卡片上的短文案</h2>
         <p className="note" data-testid="text-source">
           {draft.textSource === "llm" && "由模型根据你确认的信息撰写,已通过事实校验。"}
           {draft.textSource === "template" && "使用固定模板文案(只陈述你确认的事实)。"}

@@ -8,6 +8,7 @@ import type {
   JobView,
   MaterialView,
   OcrResult,
+  PhotoReading,
   RouteMeta,
   Score,
   State,
@@ -53,6 +54,17 @@ export function getMaterial(playerId: string, id: string): MaterialRow | undefin
 export function getScore(playerId: string): Score | null {
   db();
   return json<Score>(one<{ json: string }>("SELECT json FROM scores WHERE player_id=?", playerId)?.json);
+}
+
+export function getMoment(playerId: string): { text: string; draftedByAi: boolean } | null {
+  db();
+  const row = one<{ text: string; drafted_by_ai: number }>("SELECT text, drafted_by_ai FROM moments WHERE player_id=?", playerId);
+  return row ? { text: row.text, draftedByAi: !!row.drafted_by_ai } : null;
+}
+
+export function getReading(materialId: string): PhotoReading | null {
+  db();
+  return json<PhotoReading>(one<{ json: string }>("SELECT json FROM readings WHERE material_id=?", materialId)?.json);
 }
 
 export function getOcr(playerId: string): OcrResult | null {
@@ -116,6 +128,8 @@ export function buildState(playerId: string): State | null {
       scoreImage: scoreImg ? mat(scoreImg, playerId) : null,
     },
     score: getScore(playerId),
+    moment: getMoment(playerId),
+    visionEnabled: !!llmConfig().key,
     ocr: getOcr(playerId),
     ocrEnabled: !!llmConfig().key,
     job: jobView,
@@ -139,8 +153,7 @@ export function reconcileAfterMaterialChange(playerId: string) {
   const p = getPlayer(playerId);
   if (!p) return;
   if (p.status === "saved" || p.status === "generating" || p.status === "unclaimed") return;
-  const hasAny =
-    listMaterials(playerId).length > 0 || !!getScore(playerId);
+  const hasAny = listMaterials(playerId).length > 0 || !!getScore(playerId) || !!getMoment(playerId);
   const next: Status = p.status === "pending_confirmation" ? "pending_confirmation" : hasAny ? "draft" : "claimed_empty";
   if (next !== p.status) setStatus(playerId, next);
 }
@@ -160,6 +173,7 @@ export function removeMaterial(playerId: string, id: string): boolean {
       run("UPDATE materials SET hidden=1 WHERE id=?", id);
     } else {
       run("DELETE FROM materials WHERE id=?", id);
+      run("DELETE FROM readings WHERE material_id=?", id);
     }
   });
   if (!usedBySaved) removeMedia(m.path);

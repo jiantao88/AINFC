@@ -1,17 +1,25 @@
+import { llmConfig } from "./config";
 import { all, db, one, run, tx } from "./db";
 import { downsample, parseGpx } from "./gpx";
 import { newId } from "./secret";
-import { getEvent, getPlayer, getPreview, getSaved, getScore, listMaterials, setStatus } from "./players";
+import { getEvent, getMoment, getPlayer, getPreview, getReading, getSaved, getScore, listMaterials, setStatus } from "./players";
 import { factsFromCard, writeText } from "./text";
+import { writeJournal } from "./journal";
+import { mapLimit } from "./pool";
+import { readPhoto } from "./vision";
+import type { PhotoReading } from "./types";
 import { mediaExists, readMedia, removeMedia } from "./media";
 import type { Card, CardRoute, RouteMeta, Step } from "./types";
 
 const STEP_DEFS: { key: string; label: string }[] = [
   { key: "read", label: "读取素材" },
+  { key: "look", label: "识别照片" },
   { key: "organize", label: "整理信息" },
-  { key: "write", label: "撰写回忆文案" },
+  { key: "write", label: "撰写游记与文案" },
   { key: "card", label: "生成卡片" },
 ];
+
+const VISION_CONCURRENCY = 3;
 
 const g = globalThis as unknown as { __ainfcRunning?: Set<string> };
 const running = () => (g.__ainfcRunning ??= new Set());
@@ -87,9 +95,33 @@ async function runJob(jobId: string, playerId: string) {
     const scoreImg = listMaterials(playerId, "score_image").at(-1);
     mark(0, "done", `${photos.length} 张照片${routeRow ? "、1 条轨迹" : ""}${scoreImg ? "、1 张成绩截图" : ""}`);
 
-    // 2 整理信息:只取用户确认过的成绩;轨迹按来源区分
+    // 2 识别照片:每张只识别一次(结果缓存);单张失败不阻断,游记照常生成
     failedAt = 1;
     mark(1, "running");
+    if (faultFor(playerId, "vision_fail")) {
+      mark(1, "done", "照片识别失败(演示注入),游记只依据你写的话和已确认的信息");
+    } else {
+      // 每次模型调用要十几秒,串行识别 6 张要一分多钟;最多 3 路并发(并发数过高可能被中转服务限流)
+      const targets = photos.slice(0, 6);
+      const outcomes = await mapLimit(targets, VISION_CONCURRENCY, async (ph) => {
+        const cached = getReading(ph.id);
+        if (cached) return { reading: cached as PhotoReading | null, fresh: false };
+        const buf = ph.path ? readMedia(ph.path) : null;
+        const r = buf ? await readPhoto(buf) : { ok: false as const, error: "照片文件丢失" };
+        if (!r.ok) return { reading: null, fresh: false };
+        run("INSERT OR REPLACE INTO readings (material_id, player_id, json, created_at) VALUES (?,?,?,?)", ph.id, playerId, JSON.stringify(r.reading), Date.now());
+        return { reading: r.reading as PhotoReading | null, fresh: true };
+      });
+      const recognized = outcomes.filter((o) => o.reading).length;
+      const fresh = outcomes.filter((o) => o.fresh).length;
+      const failed = outcomes.length - recognized;
+      const note = `${recognized}/${targets.length} 张已识别${fresh ? `(新识别 ${fresh} 张)` : "(沿用已有结果)"}${failed ? `,${failed} 张失败已跳过` : ""}`;
+      mark(1, "done", llmConfig().key ? note : "未配置大模型,跳过照片识别");
+    }
+
+    // 3 整理信息:只取用户确认过的成绩;轨迹按来源区分
+    failedAt = 2;
+    mark(2, "running");
     if (delay) await sleep(delay);
     const p = getPlayer(playerId)!;
     const ev = getEvent(p.event_id);
@@ -136,24 +168,41 @@ async function runJob(jobId: string, playerId: string) {
       score ? `成绩 ${score.elapsedTime}${score.groupRank != null ? `(第 ${score.groupRank} 名)` : "(无排名)"}` : "无成绩",
       route ? (route.kind === "personal" ? "个人轨迹" : route.kind === "reference" ? "参考路线" : "轨迹截图") : "无轨迹",
     ];
-    mark(1, "done", parts.join(" · "));
+    mark(2, "done", parts.join(" · "));
 
-    // 3 文案
-    failedAt = 2;
-    mark(2, "running");
-    if (delay) await sleep(delay);
-    const text = await writeText(factsFromCard(cardBase), { forceError: faultFor(playerId, "llm_fail") });
-    mark(2, "done", text.source === "llm" ? "模型撰写,已通过事实校验" : (text.note ?? "固定模板文案"));
-
-    // 4 卡片:姓名、号码、成绩由固定模板绘制,不经过模型
+    // 4 游记 + 卡片短文案
     failedAt = 3;
     mark(3, "running");
+    if (delay) await sleep(delay);
+    const facts = factsFromCard(cardBase);
+    const momentRow = getMoment(playerId);
+    const moment = momentRow?.text.trim() ?? "";
+    // 与 card.photoIds 顺序一一对应,没识别出来的用 null 占位,[图N] 的序号才不会错位
+    const readings = photos.map((ph) => getReading(ph.id));
+    const forceError = faultFor(playerId, "llm_fail");
+    const [text, journal] = await Promise.all([
+      writeText(facts, { forceError }),
+      writeJournal({ facts, moment, photos: readings }, { forceError }),
+    ]);
+    mark(
+      3,
+      "done",
+      journal.source === "llm"
+        ? `游记已生成并通过事实校验${moment ? "(依据你写的话和照片)" : "(没有你写的话,只依据照片和事实)"}`
+        : (journal.note ?? "固定模板游记"),
+    );
+
+    // 5 卡片:姓名、号码、成绩由固定模板绘制,不经过模型
+    failedAt = 4;
+    mark(4, "running");
     if (delay) await sleep(delay);
     const card: Card = {
       ...cardBase,
       title: `${p.name}的赛后记忆`,
       text: text.text,
       textSource: text.source,
+      journal: { title: journal.title, body: journal.body, source: journal.source },
+      moment: moment || null,
     };
     tx(() => {
       run(
@@ -165,7 +214,7 @@ async function runJob(jobId: string, playerId: string) {
       );
       setStatus(playerId, "pending_confirmation");
     });
-    mark(3, "done");
+    mark(4, "done");
     saveSteps(jobId, steps, { status: "succeeded", error: null });
   } catch (e) {
     const message = e instanceof Error ? e.message : "生成失败";

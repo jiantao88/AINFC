@@ -2,11 +2,13 @@
 
 import type { State } from "@/lib/types";
 import { CardView } from "./CardView";
+import { JournalView } from "./Journal";
 
 /** 已保存:回忆页。导出图片、继续补充。补充素材后重新生成的是新草稿,旧版保留到确认 */
 export function Memory({ state, onSupplement }: { state: State; onSupplement: () => void }) {
   const saved = state.saved!;
-  const photos = state.materials.photos.filter((p) => saved.card.photoIds.includes(p.id));
+  // 有游记时照片已经排在游记里;没有游记的旧数据才单独展示照片
+  const photos = saved.card.journal ? [] : state.materials.photos.filter((p) => saved.card.photoIds.includes(p.id));
 
   return (
     <div className="pad">
@@ -21,6 +23,9 @@ export function Memory({ state, onSupplement }: { state: State; onSupplement: ()
       </section>
 
       <CardView card={saved.card} pid={state.player.id} showExport />
+
+      <JournalView card={saved.card} pid={state.player.id} />
+
 
       {photos.length > 1 && (
         <section className="card">
