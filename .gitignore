@@ -1,0 +1,13 @@
+node_modules
+.next
+.env*.local
+.env
+next-env.d.ts
+*.tsbuildinfo
+.DS_Store
+
+# 产品确认稿、内部测试数据包(含外部来源 GPX、AI 合成图、超大测试图)只在本地使用,不随公开仓库分发
+docs/
+
+# 运行时数据:SQLite、上传的照片、自动生成的密钥
+data/
