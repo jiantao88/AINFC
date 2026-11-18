@@ -1,0 +1,86 @@
+[
+  {
+    "id": "demo-001",
+    "name": "林小野",
+    "bib": "DEMO 021",
+    "eventId": "internal-race-demo-001",
+    "isFictional": true,
+    "status": "unclaimed",
+    "ownerId": null,
+    "materials": {
+      "photos": [],
+      "route": null,
+      "scoreImage": null
+    },
+    "score": null,
+    "draft": null,
+    "job": null,
+    "preview": null,
+    "savedCard": null
+  },
+  {
+    "id": "demo-002",
+    "name": "陈逐风",
+    "bib": "DEMO 022",
+    "eventId": "internal-race-demo-001",
+    "isFictional": true,
+    "status": "claimed_empty",
+    "ownerId": "demo-owner-2",
+    "materials": {
+      "photos": [],
+      "route": null,
+      "scoreImage": null
+    },
+    "score": null,
+    "draft": null,
+    "job": null,
+    "preview": null,
+    "savedCard": null
+  },
+  {
+    "id": "demo-003",
+    "name": "许听松",
+    "bib": "DEMO 023",
+    "eventId": "internal-race-demo-001",
+    "isFictional": true,
+    "status": "saved",
+    "ownerId": "demo-owner-3",
+    "materials": {
+      "photos": [
+        "assets/01-林间爬坡.png",
+        "assets/02-山脊奔跑.png",
+        "assets/03-完赛合影.png"
+      ],
+      "route": "routes/fictional-demo.gpx",
+      "scoreImage": "scores/03.png"
+    },
+    "score": {
+      "elapsedTime": "01:56:48",
+      "groupId": "demo-open",
+      "groupName": "体验组（演示）",
+      "groupRank": null,
+      "source": "fictional-fixture-not-official"
+    },
+    "draft": null,
+    "job": null,
+    "preview": null,
+    "savedCard": {
+      "title": "许听松的赛后记忆",
+      "text": "这是一份用于检查卡片布局与保存状态的虚构回忆，不代表实际参赛经历。",
+      "cover": "assets/02-山脊奔跑.png",
+      "journal": {
+        "title": "从林间上坡到终点合影",
+        "body": "进了树林，路就开始往上。我放慢脚步，看着前面的人一段一段往上走。相册里的第一张照片，留住的就是这段爬坡。\n\n[图1]\n\n出了树林，视野一下子打开。跑在山脊上时，我回头看了一眼刚刚穿过的林子。后来翻到这张照片，还能想起当时终于跑起来的感觉。\n\n[图2]\n\n到终点以后，我们举着奖牌拍了张合影。体验组的完赛成绩是 1 小时 56 分 48 秒，我把成绩和这几张照片一起存了下来。\n\n[图3]"
+      },
+      "score": {
+        "elapsedTime": "01:56:48",
+        "groupId": "demo-open",
+        "groupName": "体验组（演示）",
+        "groupRank": null,
+        "source": "fictional-fixture-not-official"
+      },
+      "routeKind": "reference",
+      "isSynthetic": true
+    }
+  }
+]

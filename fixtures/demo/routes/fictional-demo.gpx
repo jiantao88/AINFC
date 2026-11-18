@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="AINFC synthetic demo" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>虚构演示路线</name><trkseg>
+    <trkpt lat="0.000000" lon="-34.982000" />
+    <trkpt lat="0.003167" lon="-34.981154" />
+    <trkpt lat="0.006098" lon="-34.980881" />
+    <trkpt lat="0.008591" lon="-34.981370" />
+    <trkpt lat="0.010500" lon="-34.982679" />
+    <trkpt lat="0.011756" lon="-34.984720" />
+    <trkpt lat="0.012374" lon="-34.987272" />
+    <trkpt lat="0.012446" lon="-34.990042" />
+    <trkpt lat="0.012124" lon="-34.992732" />
+    <trkpt lat="0.011595" lon="-34.995112" />
+    <trkpt lat="0.011048" lon="-34.997073" />
+    <trkpt lat="0.010647" lon="-34.998651" />
+    <trkpt lat="0.010500" lon="-35.000000" />
+    <trkpt lat="0.010647" lon="-35.001349" />
+    <trkpt lat="0.011048" lon="-35.002927" />
+    <trkpt lat="0.011595" lon="-35.004888" />
+    <trkpt lat="0.012124" lon="-35.007268" />
+    <trkpt lat="0.012446" lon="-35.009958" />
+    <trkpt lat="0.012374" lon="-35.012728" />
+    <trkpt lat="0.011756" lon="-35.015280" />
+    <trkpt lat="0.010500" lon="-35.017321" />
+    <trkpt lat="0.008591" lon="-35.018630" />
+    <trkpt lat="0.006098" lon="-35.019119" />
+    <trkpt lat="0.003167" lon="-35.018846" />
+    <trkpt lat="0.000000" lon="-35.018000" />
+    <trkpt lat="-0.003167" lon="-35.016846" />
+    <trkpt lat="-0.006098" lon="-35.015655" />
+    <trkpt lat="-0.008591" lon="-35.014630" />
+    <trkpt lat="-0.010500" lon="-35.013856" />
+    <trkpt lat="-0.011756" lon="-35.013280" />
+    <trkpt lat="-0.012374" lon="-35.012728" />
+    <trkpt lat="-0.012446" lon="-35.011958" />
+    <trkpt lat="-0.012124" lon="-35.010732" />
+    <trkpt lat="-0.011595" lon="-35.008888" />
+    <trkpt lat="-0.011048" lon="-35.006391" />
+    <trkpt lat="-0.010647" lon="-35.003349" />
+    <trkpt lat="-0.010500" lon="-35.000000" />
+    <trkpt lat="-0.010647" lon="-34.996651" />
+    <trkpt lat="-0.011048" lon="-34.993609" />
+    <trkpt lat="-0.011595" lon="-34.991112" />
+    <trkpt lat="-0.012124" lon="-34.989268" />
+    <trkpt lat="-0.012446" lon="-34.988042" />
+    <trkpt lat="-0.012374" lon="-34.987272" />
+    <trkpt lat="-0.011756" lon="-34.986720" />
+    <trkpt lat="-0.010500" lon="-34.986144" />
+    <trkpt lat="-0.008591" lon="-34.985370" />
+    <trkpt lat="-0.006098" lon="-34.984345" />
+    <trkpt lat="-0.003167" lon="-34.983154" />
+    <trkpt lat="-0.000000" lon="-34.982000" />
+  </trkseg></trk>
+</gpx>

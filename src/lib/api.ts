@@ -1,5 +1,6 @@
 import { authorize } from "./auth";
 import { getPlayer } from "./players";
+import { readOnlyDemo } from "./config";
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -22,6 +23,7 @@ export function guarded(
   return async (req, ctx) => {
     const { pid } = await ctx.params;
     if (!getPlayer(pid) || !authorize(req, pid)) return err(404, "not found");
+    if (readOnlyDemo() && req.method !== "GET") return err(503, "当前线上演示仅供浏览");
     try {
       return await handler(req, pid, ctx);
     } catch (e) {

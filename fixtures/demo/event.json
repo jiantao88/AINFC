@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "internal-race-demo-001",
+  "name": "西山越野记忆体验赛（虚构演示）",
+  "date": "2026-11-15",
+  "timezone": "Asia/Shanghai",
+  "isPlaceholder": true,
+  "groups": [
+    {
+      "id": "demo-open",
+      "name": "体验组（演示）"
+    }
+  ],
+  "heroImage": "assets/02-山脊奔跑.png",
+  "referenceRoute": {
+    "file": "routes/fictional-demo.gpx",
+    "notice": "虚构参考路线，非真实赛道或选手行走记录。"
+  }
+}

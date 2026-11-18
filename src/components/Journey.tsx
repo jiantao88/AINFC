@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /** 登录后的主体验。按选手状态分流:无素材 → 收集页;有草稿 → 恢复草稿;生成中 → 任务状态;待确认 → 预览页;已保存 → 回忆页 */
-export function Journey({ pid }: { pid: string }) {
+export function Journey({ pid, readOnly = false }: { pid: string; readOnly?: boolean }) {
   const { state, refresh, lost } = usePlayerState(pid);
   const [supplementing, setSupplementing] = useState(false);
   const status = state?.player.status;
@@ -45,7 +45,7 @@ export function Journey({ pid }: { pid: string }) {
 
   const st = state.player.status;
   const heroSub = `${state.event.name} · ${state.event.date}`;
-  const showCollect = st === "claimed_empty" || st === "draft" || (st === "saved" && supplementing);
+  const showCollect = !readOnly && (st === "claimed_empty" || st === "draft" || (st === "saved" && supplementing));
 
   return (
     <main className="page" data-status={st} data-testid="journey">
@@ -54,6 +54,7 @@ export function Journey({ pid }: { pid: string }) {
         <div className="pad" style={{ marginBottom: 6 }}>
           <span className="tag" data-testid="status-tag">{STATUS_LABEL[st] ?? st}</span>{" "}
           {state.event.isPlaceholder && <span className="tag warn">虚构演示赛事</span>}
+          {readOnly && <p className="note">线上演示仅供浏览。</p>}
         </div>
 
         {st === "generating" && <JobStatus state={state} refresh={refresh} />}
@@ -67,7 +68,7 @@ export function Journey({ pid }: { pid: string }) {
 
         {st === "saved" && !supplementing && state.saved && (
           <>
-            <Memory state={state} onSupplement={() => setSupplementing(true)} />
+            <Memory state={state} onSupplement={readOnly ? undefined : () => setSupplementing(true)} />
             {state.job?.status === "failed" && <JobStatus state={state} refresh={refresh} />}
           </>
         )}

@@ -73,8 +73,8 @@ export interface PhotoReading {
 export interface JournalView {
   title: string;
   body: string;
-  /** llm: 模型根据"这一刻"和照片写;template: 固定模板;user: 用户改过 */
-  source: "llm" | "template" | "user";
+  /** llm: 模型根据"这一刻"和照片写;template: 固定模板;user: 用户改过;fixture: 演示样例 */
+  source: "llm" | "template" | "user" | "fixture";
 }
 
 export interface Card {

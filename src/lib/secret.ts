@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir } from "./config";
+import { dataDir, hosted } from "./config";
 
 const g = globalThis as unknown as { __ainfcSecret?: string };
 
@@ -9,6 +9,7 @@ const g = globalThis as unknown as { __ainfcSecret?: string };
 export function secret(): string {
   if (g.__ainfcSecret) return g.__ainfcSecret;
   let value = process.env.AINFC_SECRET;
+  if (!value && hosted) throw new Error("AINFC_SECRET is required on Vercel");
   if (!value) {
     const file = path.join(dataDir(), "secret.key");
     fs.mkdirSync(dataDir(), { recursive: true });

@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import path from "node:path";
 import { demoGuard, clearSessionsFor } from "@/lib/auth";
 import { err, json } from "@/lib/api";
 import { startGeneration } from "@/lib/agent";
 import { all, db, run } from "@/lib/db";
+import { DEMO_PHOTOS_DIR, readOnlyDemo } from "@/lib/config";
 import { removePlayerMedia } from "@/lib/media";
 import { getEvent, getPlayer, getPreview, getSaved, listMaterials, setStatus } from "@/lib/players";
-import { attachFixtureFile, fixturePath, seedAll } from "@/lib/seed";
+import { attachFixtureFile, seedAll } from "@/lib/seed";
 import type { Score } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -36,10 +36,9 @@ function fillMaterials(pid: string) {
   const p = getPlayer(pid)!;
   const ev = getEvent(p.event_id);
   if (listMaterials(pid, "photo").length === 0) {
-    // 演示素材:docs/demo-assets/xiangzhi 下的三张照片(AI 合成,非实拍)。缺失时跳过
-    const dir = path.join(process.cwd(), "docs", "demo-assets", "xiangzhi");
+    // 三张 AI 合成演示照片，缺失时跳过。部署时由 outputFileTracingIncludes 打包。
     for (const f of ["02-山脊奔跑.png", "01-林间爬坡.png", "03-完赛合影.png"]) {
-      attachFixtureFile(pid, "photo", path.join(dir, f));
+      attachFixtureFile(pid, "photo", path.join(/* turbopackIgnore: true */ DEMO_PHOTOS_DIR, f));
     }
   }
   if (!all("SELECT 1 FROM moments WHERE player_id=?", pid).length) {
@@ -72,6 +71,7 @@ function fillMaterials(pid: string) {
 export async function POST(req: Request) {
   const blocked = demoGuard();
   if (blocked) return blocked;
+  if (readOnlyDemo()) return err(503, "当前线上演示仅供浏览");
   let body: Record<string, unknown>;
   try {
     body = await req.json();

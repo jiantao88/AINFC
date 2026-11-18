@@ -11,3 +11,4 @@ docs/
 
 # 运行时数据:SQLite、上传的照片、自动生成的密钥
 data/
+.vercel/

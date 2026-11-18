@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { FIXTURES_DIR } from "./config";
+import { FIXTURES_DIR, hosted } from "./config";
 import { db } from "./db";
-import { newId, tagCodeFor } from "./secret";
+import { newId, sha256, tagCodeFor } from "./secret";
 import { saveMedia, sniffImage } from "./media";
 import { downsample, parseGpx } from "./gpx";
 import type { Card, EventConfig, Score } from "./types";
@@ -20,6 +20,7 @@ interface FixturePlayer {
     title: string;
     text: string;
     cover: string;
+    journal?: Pick<NonNullable<Card["journal"]>, "title" | "body">;
     score: { elapsedTime: string; groupName: string; groupRank: number | null; source: string };
     routeKind: string;
   } | null;
@@ -45,7 +46,8 @@ export function attachFixtureFile(
   const file = path.isAbsolute(rel) ? rel : fixturePath(rel);
   if (!fs.existsSync(file)) return null;
   const buf = fs.readFileSync(file);
-  const id = newId();
+  const relative = path.relative(FIXTURES_DIR, file);
+  const id = hosted ? sha256(JSON.stringify([playerId, kind, relative])).slice(0, 24) : newId();
   const now = Date.now();
   let ext = "bin";
   let mime: string | null = null;
@@ -63,7 +65,7 @@ export function attachFixtureFile(
     ext = img.ext;
     mime = img.mime;
   }
-  const relPath = saveMedia(playerId, id, ext, buf);
+  const relPath = hosted ? `fixture:${relative}` : saveMedia(playerId, id, ext, buf);
   db()
     .prepare(
       "INSERT INTO materials (id, player_id, kind, filename, mime, size, path, meta, created_at, hidden) VALUES (?,?,?,?,?,?,?,?,?,0)",
@@ -104,9 +106,13 @@ function seedPlayer(p: FixturePlayer, event: EventConfig) {
     d.prepare("INSERT OR REPLACE INTO tags (code, player_id, kind) VALUES (?,?,?)").run(tagCodeFor(p.id, kind), p.id, kind);
   }
 
-  if (p.status !== "saved" || !p.savedCard || !p.score) return;
+  const { savedCard } = p;
+  if (p.status !== "saved" || !savedCard || !p.score) return;
 
-  const photoId = p.materials.photos[0] ? attachFixtureFile(p.id, "photo", p.materials.photos[0]) : null;
+  const photos = [...new Set(p.materials.photos)].flatMap((file) => {
+    const id = attachFixtureFile(p.id, "photo", file);
+    return id ? [{ file, id }] : [];
+  });
   const routeId = p.materials.route ? attachFixtureFile(p.id, "route", p.materials.route) : null;
   if (p.materials.scoreImage) attachFixtureFile(p.id, "score_image", p.materials.scoreImage);
 
@@ -130,15 +136,16 @@ function seedPlayer(p: FixturePlayer, event: EventConfig) {
 
   const card: Card = {
     version: 1,
-    title: p.savedCard.title,
-    text: p.savedCard.text,
+    title: savedCard.title,
+    text: savedCard.text,
     textSource: "fixture",
+    ...(savedCard.journal ? { journal: { ...savedCard.journal, source: "fixture" } } : {}),
     event: { name: event.name, date: event.date, isPlaceholder: event.isPlaceholder },
     player: { name: p.name, bib: p.bib },
     score: { elapsedTime: score.elapsedTime, groupName: score.groupName, groupRank: score.groupRank, source: score.source },
     route,
-    coverMaterialId: photoId,
-    photoIds: photoId ? [photoId] : [],
+    coverMaterialId: photos.find((photo) => photo.file === savedCard.cover)?.id ?? photos[0]?.id ?? null,
+    photoIds: photos.map((photo) => photo.id),
     generatedAt: Date.now(),
   };
   d.prepare("INSERT OR REPLACE INTO saved_cards (player_id, json, saved_at) VALUES (?,?,?)").run(p.id, JSON.stringify(card), Date.now());

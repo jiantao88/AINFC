@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { dataDir } from "./config";
+import { dataDir, readOnlyDemo } from "./config";
 import { seedIfEmpty } from "./seed";
 import type { MaterialKind, Status } from "./types";
 
@@ -72,11 +72,11 @@ CREATE TABLE IF NOT EXISTS faults (player_id TEXT NOT NULL, kind TEXT NOT NULL, 
 const g = globalThis as unknown as { __ainfcDb?: { db: DatabaseSync; dir: string } };
 
 export function db(): DatabaseSync {
-  const dir = dataDir();
+  const dir = readOnlyDemo() ? ":memory:" : dataDir();
   if (g.__ainfcDb && g.__ainfcDb.dir === dir) return g.__ainfcDb.db;
   closeDb();
-  fs.mkdirSync(dir, { recursive: true });
-  const d = new DatabaseSync(path.join(dir, "ainfc.db"));
+  if (!readOnlyDemo()) fs.mkdirSync(dir, { recursive: true });
+  const d = new DatabaseSync(readOnlyDemo() ? dir : path.join(dir, "ainfc.db"));
   d.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   d.exec(SCHEMA);
   g.__ainfcDb = { db: d, dir };

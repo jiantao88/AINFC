@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir } from "./config";
+import { dataDir, FIXTURES_DIR } from "./config";
 
 export function sniffImage(buf: Buffer): { mime: string; ext: string } | null {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -15,8 +15,9 @@ const mediaRoot = () => path.join(dataDir(), "media");
 
 /** 只接受 saveMedia 返回的相对路径,防止路径穿越 */
 export function mediaPath(rel: string): string {
-  const root = mediaRoot();
-  const abs = path.resolve(root, rel);
+  const bundled = rel.startsWith("fixture:");
+  const root = bundled ? FIXTURES_DIR : mediaRoot();
+  const abs = path.resolve(root, bundled ? rel.slice("fixture:".length) : rel);
   if (!abs.startsWith(root + path.sep)) throw new Error("非法媒体路径");
   return abs;
 }
@@ -41,7 +42,7 @@ export function readMedia(rel: string): Buffer | null {
 export const mediaExists = (rel: string) => fs.existsSync(mediaPath(rel));
 
 export function removeMedia(rel: string | null) {
-  if (!rel) return;
+  if (!rel || rel.startsWith("fixture:")) return;
   try {
     fs.rmSync(mediaPath(rel), { force: true });
   } catch {}

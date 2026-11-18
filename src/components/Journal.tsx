@@ -4,10 +4,11 @@ import { useMemo } from "react";
 import { splitJournal } from "@/lib/journal-blocks";
 import type { Card } from "@/lib/types";
 
-const SOURCE: Record<string, string> = {
+const SOURCE: Record<NonNullable<Card["journal"]>["source"], string> = {
   llm: "AI 根据你写的话、照片和确认过的信息撰写,已通过事实校验",
   template: "固定模板:没有可用的大模型结果,只陈述确认过的信息和你写的话",
   user: "你已修改这篇游记",
+  fixture: "虚构图文游记样例",
 };
 
 const SERIF = '"Songti SC","Noto Serif SC",Georgia,serif';

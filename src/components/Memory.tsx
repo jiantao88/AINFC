@@ -5,7 +5,7 @@ import { CardView } from "./CardView";
 import { JournalView } from "./Journal";
 
 /** 已保存:回忆页。导出图片、继续补充。补充素材后重新生成的是新草稿,旧版保留到确认 */
-export function Memory({ state, onSupplement }: { state: State; onSupplement: () => void }) {
+export function Memory({ state, onSupplement }: { state: State; onSupplement?: () => void }) {
   const saved = state.saved!;
   // 有游记时照片已经排在游记里;没有游记的旧数据才单独展示照片
   const photos = saved.card.journal ? [] : state.materials.photos.filter((p) => saved.card.photoIds.includes(p.id));
@@ -41,13 +41,13 @@ export function Memory({ state, onSupplement }: { state: State; onSupplement: ()
         </section>
       )}
 
-      <section className="card">
+      {onSupplement && <section className="card">
         <h2>继续补充</h2>
         <p className="muted" style={{ margin: "2px 0 8px" }}>
           补充照片、轨迹或成绩后重新生成。新版本是草稿,你确认之前,现在这张卡片不会被替换。
         </p>
         <button className="btn" onClick={onSupplement} data-testid="supplement">补充素材并重新生成</button>
-      </section>
+      </section>}
     </div>
   );
 }

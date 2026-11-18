@@ -1,9 +1,18 @@
 import path from "node:path";
+import fs from "node:fs";
 
 export const ROOT = process.cwd();
+export const hosted = process.env.VERCEL === "1";
+export const readOnlyDemo = () => hosted;
 /** 每次调用都读环境变量,测试可以把数据目录指向临时目录 */
 export const dataDir = () => process.env.AINFC_DATA_DIR ?? path.join(ROOT, "data");
-export const FIXTURES_DIR = path.join(ROOT, "docs", "demo-fixtures");
+const localFixtures = path.join(ROOT, "docs", "demo-fixtures");
+export const FIXTURES_DIR = !hosted && fs.existsSync(path.join(localFixtures, "event.json"))
+  ? localFixtures
+  : path.join(ROOT, "fixtures", "demo");
+export const DEMO_PHOTOS_DIR = FIXTURES_DIR === localFixtures
+  ? path.join(ROOT, "docs", "demo-assets", "xiangzhi")
+  : path.join(FIXTURES_DIR, "assets");
 
 export const demoMode = () => process.env.DEMO_MODE === "1";
 

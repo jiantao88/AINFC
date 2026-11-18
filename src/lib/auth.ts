@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
-import { LIMITS, demoMode } from "./config";
+import { createHmac } from "node:crypto";
+import { LIMITS, demoMode, readOnlyDemo } from "./config";
 import { all, db, one, run, tx, type PlayerRow } from "./db";
-import { claimCodeFor, newId, normalizeClaimCode, safeEqual, sha256 } from "./secret";
+import { claimCodeFor, newId, normalizeClaimCode, safeEqual, secret, sha256 } from "./secret";
 
 const COOKIE = "ainfc_session";
 
@@ -16,13 +17,19 @@ export function claim(playerId: string, codeInput: string): ClaimResult {
   if (!player) return { ok: false, reason: "not_found" };
 
   const now = Date.now();
+  const expected = claimCodeFor(playerId);
+  const given = normalizeClaimCode(codeInput.slice(0, 32));
+  if (readOnlyDemo()) {
+    if (!safeEqual(given, expected)) return { ok: false, reason: "wrong_code", left: LIMITS.claimMaxFails };
+    const payload = `${player.id}.${now + LIMITS.sessionMaxAgeSec * 1000}`;
+    return { ok: true, token: `${payload}.${signDemoSession(payload)}` };
+  }
+
   const attempts = one<{ fails: number; locked_until: number }>("SELECT * FROM claim_attempts WHERE player_id=?", playerId);
   if (attempts && attempts.locked_until > now) {
     return { ok: false, reason: "locked", retryAfterSec: Math.ceil((attempts.locked_until - now) / 1000) };
   }
 
-  const expected = claimCodeFor(playerId);
-  const given = normalizeClaimCode(codeInput.slice(0, 32));
   if (!safeEqual(given, expected)) {
     const fails = (attempts?.fails ?? 0) + 1;
     const lock = fails >= LIMITS.claimMaxFails;
@@ -78,6 +85,11 @@ export async function sessionPlayerIds(): Promise<string[]> {
 }
 
 export function playerIdsForToken(token: string): string[] {
+  if (readOnlyDemo()) {
+    const [id, expires, signature, extra] = token.split(".");
+    if (!id || !expires || !signature || extra !== undefined || !(Number(expires) > Date.now())) return [];
+    return safeEqual(signature, signDemoSession(`${id}.${expires}`)) ? [id] : [];
+  }
   db();
   const rows = all<{ player_id: string }>(
     "SELECT player_id FROM sessions WHERE token_hash=? AND expires_at>?",
@@ -85,6 +97,10 @@ export function playerIdsForToken(token: string): string[] {
     Date.now(),
   );
   return rows.map((r) => r.player_id);
+}
+
+function signDemoSession(payload: string) {
+  return createHmac("sha256", secret()).update(`demo-session:${payload}`).digest("base64url");
 }
 
 /** 从 Request 里读 Cookie 头(Route Handler 里用),不依赖 next/headers */

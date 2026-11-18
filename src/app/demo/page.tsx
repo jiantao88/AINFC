@@ -28,16 +28,18 @@ const FAULT_LABEL: Record<string, string> = {
 export default function DemoConsole() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [origin, setOrigin] = useState("");
+  const [readOnly, setReadOnly] = useState(false);
   const [off, setOff] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ origin: string; players: Row[] }>("/api/demo/state", { cache: "no-store" });
+    const r = await api<{ origin: string; players: Row[]; readOnly: boolean }>("/api/demo/state", { cache: "no-store" });
     if (r.status === 404) return setOff(true);
     if (r.ok) {
       setRows((r.data as { players: Row[] }).players);
       setOrigin((r.data as { origin: string }).origin);
+      setReadOnly((r.data as { readOnly: boolean }).readOnly);
     }
   }, []);
 
@@ -68,17 +70,18 @@ export default function DemoConsole() {
     <main style={{ maxWidth: 980, margin: "0 auto", padding: "24px 18px 80px" }}>
       <h1>演示控制台</h1>
       <p className="muted">
-        内部测试用。当前地址 <code>{origin}</code>。真机访问请用局域网地址,并用二维码或下面的链接代替 NFC。
+        当前地址 <code>{origin}</code>。用二维码或下面的链接代替 NFC。
       </p>
       <p className="note">所有赛事、选手、成绩均为虚构。认领码独立于号码和网址,正式使用时随号码簿发放。</p>
+      {readOnly && <p className="note">线上演示仅供浏览。打开 DEMO 023 并输入认领码，即可查看已保存的卡片和图文游记。</p>}
 
-      <div className="row" style={{ margin: "12px 0" }}>
+      {rows && !readOnly && <div className="row" style={{ margin: "12px 0" }}>
         <button className="btn danger" disabled={busy !== null} data-testid="reset-all"
           onClick={() => confirm("重置所有选手、素材和登录状态,回到初始数据?") && act("reset", { action: "reset_all" }, "重置全部")}>
           重置全部数据
         </button>
         {msg && <span role="status" className="note" data-testid="demo-msg">{msg}</span>}
-      </div>
+      </div>}
 
       {!rows && <p className="muted">加载中…</p>}
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))" }}>
@@ -104,6 +107,7 @@ export default function DemoConsole() {
               ))}
             </div>
 
+            {!readOnly && <>
             <h3 style={{ fontSize: 15, margin: "12px 0 6px" }}>一键造状态</h3>
             <div className="row">
               {([["draft", "草稿"], ["generating", "生成中"], ["pending_confirmation", "待确认"]] as const).map(([s, l]) => (
@@ -130,6 +134,7 @@ export default function DemoConsole() {
                 );
               })}
             </div>
+            </>}
           </section>
         ))}
       </div>

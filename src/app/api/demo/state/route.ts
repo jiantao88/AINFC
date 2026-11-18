@@ -2,6 +2,7 @@ import QRCode from "qrcode";
 import { all, db } from "@/lib/db";
 import { demoGuard } from "@/lib/auth";
 import { json } from "@/lib/api";
+import { readOnlyDemo } from "@/lib/config";
 import { buildState, demoCodes } from "@/lib/players";
 import type { PlayerRow } from "@/lib/db";
 
@@ -44,6 +45,6 @@ export async function GET(req: Request) {
       };
     }),
   );
-  return json({ origin, players: rows });
+  return json({ origin, players: rows, readOnly: readOnlyDemo() });
 }
 
