@@ -6,6 +6,7 @@ import { checkText, factsFromCard } from "@/lib/text";
 import type { Card } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
  * action: generate | save | edit | discard
@@ -19,28 +20,28 @@ export const POST = guarded(async (req, pid) => {
     return err(400, "请求内容无法读取");
   }
   const action = body.action;
-  const player = getPlayer(pid)!;
+  const player = (await getPlayer(pid))!;
 
   if (action === "generate") {
-    const r = startGeneration(pid);
+    const r = await startGeneration(pid);
     return r.ok ? json({ ok: true, jobId: r.jobId }, 202) : err(409, r.reason);
   }
 
   if (action === "save") {
-    const r = confirmSave(pid);
+    const r = await confirmSave(pid);
     return r.ok ? json({ ok: true }) : err(409, r.reason);
   }
 
   if (action === "discard") {
     // 放弃待确认的新版本;已保存的旧版本保持不变
     if (player.status !== "pending_confirmation") return err(409, "没有待确认的卡片");
-    run("DELETE FROM previews WHERE player_id=?", pid);
-    setStatus(pid, getSaved(pid) ? "saved" : "draft");
+    await run("DELETE FROM previews WHERE player_id=?", pid);
+    await setStatus(pid, (await getSaved(pid)) ? "saved" : "draft");
     return json({ ok: true });
   }
 
   if (action === "edit") {
-    const preview = getPreview(pid);
+    const preview = await getPreview(pid);
     if (!preview || player.status !== "pending_confirmation") return err(409, "没有可编辑的卡片");
     const next: Card = { ...preview };
 
@@ -94,7 +95,7 @@ export const POST = guarded(async (req, pid) => {
       const c = checkText(next.text || "占位文案占位文案占位文案占位文案", factsFromCard(next));
       if (!c.ok && next.text) warning = `文案里有与确认数据不一致的内容:${c.reasons.filter((r) => r.includes("数字") || r.includes("没有")).join("、") || "请核对"}`;
     }
-    run("INSERT OR REPLACE INTO previews (player_id, json, job_id, updated_at) VALUES (?, ?, (SELECT job_id FROM previews WHERE player_id=?), ?)", pid, JSON.stringify(next), pid, Date.now());
+    await run("INSERT OR REPLACE INTO previews (player_id, json, job_id, updated_at) VALUES (?, ?, (SELECT job_id FROM previews WHERE player_id=?), ?)", pid, JSON.stringify(next), pid, Date.now());
     return json({ ok: true, preview: next, warning });
   }
 

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { dataDir, readOnlyDemo } from "./config";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { pathToFileURL } from "node:url";
+import { createClient, type Client, type Transaction } from "@libsql/client";
+import { cloudDatabase, dataDir, hosted, readOnlyDemo } from "./config";
 import { seedIfEmpty } from "./seed";
 import type { MaterialKind, Status } from "./types";
 
@@ -69,52 +71,91 @@ CREATE TABLE IF NOT EXISTS readings (
 CREATE TABLE IF NOT EXISTS faults (player_id TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (player_id, kind));
 `;
 
-const g = globalThis as unknown as { __ainfcDb?: { db: DatabaseSync; dir: string } };
-
-export function db(): DatabaseSync {
-  const dir = readOnlyDemo() ? ":memory:" : dataDir();
-  if (g.__ainfcDb && g.__ainfcDb.dir === dir) return g.__ainfcDb.db;
-  closeDb();
-  if (!readOnlyDemo()) fs.mkdirSync(dir, { recursive: true });
-  const d = new DatabaseSync(readOnlyDemo() ? dir : path.join(dir, "ainfc.db"));
-  d.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
-  d.exec(SCHEMA);
-  g.__ainfcDb = { db: d, dir };
-  recoverStuckJobs(d);
-  seedIfEmpty();
-  return d;
+interface Connection {
+  client: Client;
+  remote: boolean;
+  ready: Promise<void>;
+  tail: Promise<void>;
 }
 
-export function closeDb() {
-  try {
-    g.__ainfcDb?.db.close();
-  } catch {}
-  g.__ainfcDb = undefined;
+const transaction = new AsyncLocalStorage<Transaction>();
+let connection: (Connection & { url: string }) | undefined;
+
+function database(): Connection {
+  const remote = !readOnlyDemo() ? cloudDatabase() : null;
+  const url = remote?.url ?? (hosted ? "file::memory:" : pathToFileURL(path.join(dataDir(), "ainfc.db")).href);
+  if (connection?.url === url) return connection;
+  if (!remote && !hosted) fs.mkdirSync(dataDir(), { recursive: true });
+  const client = createClient({ url, authToken: remote?.authToken, concurrency: remote ? 16 : 1 });
+  const ready = initialize(client, !!remote).catch((error) => {
+    if (connection?.client === client) connection = undefined;
+    client.close();
+    throw error;
+  });
+  connection = { url, client, remote: !!remote, ready, tail: Promise.resolve() };
+  return connection;
 }
 
-/** 服务重启后,仍标记为运行中的任务不可能还在跑:标记失败,选手回到草稿,素材保留 */
-function recoverStuckJobs(d: DatabaseSync) {
-  d.prepare(
-    "UPDATE jobs SET status='failed', error='服务重启,任务中断。素材已保留,请重试', updated_at=? WHERE status IN ('queued','running')",
-  ).run(Date.now());
-  d.prepare(
-    "UPDATE players SET status = CASE WHEN EXISTS (SELECT 1 FROM saved_cards WHERE saved_cards.player_id = players.id) THEN 'saved' ELSE 'draft' END WHERE status='generating'",
-  ).run();
-}
-
-export const one = <T>(sql: string, ...p: Param[]) => db().prepare(sql).get(...p) as T | undefined;
-export const all = <T>(sql: string, ...p: Param[]) => db().prepare(sql).all(...p) as T[];
-export const run = (sql: string, ...p: Param[]) => db().prepare(sql).run(...p);
-
-export function tx<T>(fn: () => T): T {
-  const d = db();
-  d.exec("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    d.exec("COMMIT");
-    return result;
-  } catch (e) {
-    d.exec("ROLLBACK");
-    throw e;
+async function initialize(client: Client, remote: boolean) {
+  if (!remote) await client.executeMultiple("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+  await client.executeMultiple(SCHEMA);
+  // 远程函数冷启动时其他实例可能还在跑任务，不能按本机重启处理。
+  if (!remote) {
+    await inTransaction(client, async () => {
+      await run(
+        "UPDATE jobs SET status='failed', error='服务重启,任务中断。素材已保留,请重试', updated_at=? WHERE status IN ('queued','running')",
+        Date.now(),
+      );
+      await run(
+        "UPDATE players SET status = CASE WHEN EXISTS (SELECT 1 FROM saved_cards WHERE saved_cards.player_id = players.id) THEN 'saved' ELSE 'draft' END WHERE status='generating'",
+      );
+    });
   }
+  if (!await client.execute("SELECT 1 FROM players LIMIT 1").then((r) => r.rows.length)) {
+    await inTransaction(client, seedIfEmpty);
+  }
+}
+
+async function withConnection<T>(fn: (client: Client) => Promise<T>): Promise<T> {
+  const conn = database();
+  await conn.ready;
+  if (conn.remote) return fn(conn.client);
+  // 本地单连接需要将普通查询排在打开的事务之后。
+  const previous = conn.tail;
+  let release!: () => void;
+  conn.tail = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    return await fn(conn.client);
+  } finally {
+    release();
+  }
+}
+
+export function run(sql: string, ...args: Param[]) {
+  const active = transaction.getStore();
+  return active ? active.execute({ sql, args }) : withConnection((client) => client.execute({ sql, args }));
+}
+
+export async function all<T>(sql: string, ...params: Param[]): Promise<T[]> {
+  return (await run(sql, ...params)).rows as T[];
+}
+
+export async function one<T>(sql: string, ...params: Param[]): Promise<T | undefined> {
+  return (await all<T>(sql, ...params))[0];
+}
+
+async function inTransaction<T>(client: Client, fn: () => Promise<T>): Promise<T> {
+  const writer = await client.transaction("write");
+  try {
+    const result = await transaction.run(writer, fn);
+    await writer.commit();
+    return result;
+  } finally {
+    writer.close();
+  }
+}
+
+export function tx<T>(fn: () => Promise<T>): Promise<T> {
+  return transaction.getStore() ? fn() : withConnection((client) => inTransaction(client, fn));
 }

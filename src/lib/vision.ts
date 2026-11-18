@@ -39,7 +39,7 @@ export function parseReading(text: string): PhotoReading | null {
 
 export async function readPhoto(
   buf: Buffer,
-  opts: { fetchImpl?: typeof fetch; retryDelayMs?: number } = {},
+  opts: { fetchImpl?: typeof fetch; retryDelayMs?: number; signal?: AbortSignal } = {},
 ): Promise<{ ok: true; reading: PhotoReading } | { ok: false; error: string }> {
   const cfg = llmConfig();
   if (!cfg.key) return { ok: false, error: "未配置大模型" };
@@ -70,13 +70,14 @@ export async function readPhoto(
   // 中转服务偶发网络错误、限流(429)或 5xx:最多尝试 3 次。其他 4xx 重试没有意义
   let error = "识别失败";
   for (let attempt = 1; attempt <= 3; attempt++) {
+    if (opts.signal?.aborted) return { ok: false, error: "识别超时" };
     if (attempt > 1) await new Promise((r) => setTimeout(r, delay * (attempt - 1)));
     try {
       const res = await doFetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" },
         body: payload,
-        signal: AbortSignal.timeout(60_000),
+        signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       });
       if (!res.ok) {
         error = `识别服务返回 ${res.status}`;
@@ -102,7 +103,7 @@ export const photoHash = (buf: Buffer) => createHash("sha256").update(buf).diges
 
 /** 读取已入库的照片并识别。读不到文件时返回错误而不是抛出 */
 export async function readStoredPhoto(rel: string | null) {
-  const buf = rel ? readMedia(rel) : null;
+  const buf = rel ? await readMedia(rel) : null;
   if (!buf) return { ok: false as const, error: "照片文件丢失" };
   return readPhoto(buf);
 }

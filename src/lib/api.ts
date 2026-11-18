@@ -22,9 +22,9 @@ export function guarded(
 ): (req: Request, ctx: Ctx) => Promise<Response> {
   return async (req, ctx) => {
     const { pid } = await ctx.params;
-    if (!getPlayer(pid) || !authorize(req, pid)) return err(404, "not found");
-    if (readOnlyDemo() && req.method !== "GET") return err(503, "当前线上演示仅供浏览");
     try {
+      if (!(await authorize(req, pid)) || !(await getPlayer(pid))) return err(404, "not found");
+      if (readOnlyDemo() && req.method !== "GET") return err(503, "当前线上演示仅供浏览");
       return await handler(req, pid, ctx);
     } catch (e) {
       console.error("api error", req.method, new URL(req.url).pathname, e instanceof Error ? e.message : e);

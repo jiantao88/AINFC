@@ -26,15 +26,16 @@ export function secret(): string {
 const CLAIM_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const TAG_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
-function derive(label: string, length: number, alphabet: string): string {
-  const digest = crypto.createHmac("sha256", secret()).update(label).digest();
+function derive(label: string, length: number, alphabet: string, key = secret()): string {
+  const digest = crypto.createHmac("sha256", key).update(label).digest();
   let out = "";
   for (let i = 0; i < length; i++) out += alphabet[digest[i] % alphabet.length];
   return out;
 }
 
 /** 认领码独立于公开的号码和标签网址 */
-export const claimCodeFor = (playerId: string) => derive(`claim:${playerId}`, 6, CLAIM_ALPHABET);
+export const claimCodeFor = (playerId: string) =>
+  derive(`claim:${playerId}`, 6, CLAIM_ALPHABET, process.env.AINFC_CLAIM_SECRET || secret());
 export const tagCodeFor = (playerId: string, kind: "medal" | "bib") =>
   derive(`tag:${kind}:${playerId}`, 10, TAG_ALPHABET);
 

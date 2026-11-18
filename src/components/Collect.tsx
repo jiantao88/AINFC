@@ -1,20 +1,47 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { State } from "@/lib/types";
+import { INLINE_UPLOAD_MAX, type State } from "@/lib/types";
 import { api, fmtSize, post } from "./client";
 
 type Item = { key: string; name: string; status: "uploading" | "error"; error?: string; file: File; kind: "photo" | "route" | "score_image" };
 
 /** 单文件上传,失败只影响这一个,可单项重试 */
-function useUploader(pid: string, onDone: () => void) {
+function useUploader(pid: string, directUpload: boolean, onDone: () => void) {
   const [items, setItems] = useState<Item[]>([]);
+  const staged = useRef(new Map<string, string>());
+  const url = `/api/p/${pid}/materials`;
 
-  async function send(item: Item) {
+  function sendInline(item: Item) {
     const form = new FormData();
     form.set("kind", item.kind);
     form.set("file", item.file);
-    const r = await api(`/api/p/${pid}/materials`, { method: "POST", body: form });
+    return api(url, { method: "POST", body: form });
+  }
+
+  async function sendDirect(item: Item) {
+    let ticket = staged.current.get(item.key);
+    if (!ticket) {
+      const r = await api<{ pathname: string; token: string; ticket: string }>(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "prepare", kind: item.kind, size: item.file.size, name: item.name }),
+      });
+      if (!r.ok) return r;
+      const { put } = await import("@vercel/blob/client");
+      await put(r.data.pathname, item.file, {
+        token: r.data.token, access: "private", contentType: "application/octet-stream", multipart: true,
+      });
+      ticket = r.data.ticket;
+      staged.current.set(item.key, ticket);
+    }
+    return post(url, { action: "finish", ticket });
+  }
+
+  async function send(item: Item) {
+    const r = await (directUpload && item.file.size > INLINE_UPLOAD_MAX ? sendDirect(item) : sendInline(item))
+      .catch(() => ({ ok: false, status: 0, data: { error: "上传中断，请重试", code: undefined } }));
+    if (r.data.code === "upload_expired" || r.status === 415 || r.status === 422 || r.ok) staged.current.delete(item.key);
     if (r.ok) {
       setItems((xs) => xs.filter((x) => x.key !== item.key));
       onDone();
@@ -41,7 +68,10 @@ function useUploader(pid: string, onDone: () => void) {
     setItems((xs) => xs.map((x) => (x.key === key ? { ...x, status: "uploading", error: undefined } : x)));
     void send(it);
   }
-  const dismiss = (key: string) => setItems((xs) => xs.filter((x) => x.key !== key));
+  function dismiss(key: string) {
+    staged.current.delete(key);
+    setItems((xs) => xs.filter((x) => x.key !== key));
+  }
   return { items, add, retry, dismiss };
 }
 
@@ -81,7 +111,7 @@ function PendingList({
 
 export function Collect({ state, refresh }: { state: State; refresh: () => Promise<unknown> }) {
   const pid = state.player.id;
-  const up = useUploader(pid, refresh);
+  const up = useUploader(pid, !!state.event.directUpload, refresh);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [genErr, setGenErr] = useState<string | null>(null);

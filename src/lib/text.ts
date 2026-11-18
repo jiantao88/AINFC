@@ -214,7 +214,7 @@ export async function writeText(
             { role: "user", content: `事实:\n${JSON.stringify(f, null, 2)}${hint}` },
           ],
         }),
-        signal: opts.signal ?? AbortSignal.timeout(60_000),
+        signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       });
       if (!res.ok) return fallback(`模型返回 ${res.status},使用固定模板文案`);
       const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir, FIXTURES_DIR } from "./config";
+import { del, get, put } from "@vercel/blob";
+import { cloudMedia, dataDir, FIXTURES_DIR } from "./config";
 
 export function sniffImage(buf: Buffer): { mime: string; ext: string } | null {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -23,15 +24,19 @@ export function mediaPath(rel: string): string {
 }
 
 /** 相对路径用字符串拼接而非 path.join,避免打包器把它当成对整个项目的动态文件访问 */
-export function saveMedia(playerId: string, id: string, ext: string, buf: Buffer): string {
+export async function saveMedia(playerId: string, id: string, ext: string, buf: Buffer): Promise<string> {
   const rel = `${playerId}/${id}.${ext}`;
+  if (cloudMedia()) {
+    await put(rel, buf, { access: "private", addRandomSuffix: false, cacheControlMaxAge: 60 });
+    return `blob:${rel}`;
+  }
   const abs = mediaPath(rel);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, buf);
   return rel;
 }
 
-export function readMedia(rel: string): Buffer | null {
+function readLocalMedia(rel: string): Buffer | null {
   try {
     return fs.readFileSync(mediaPath(rel));
   } catch {
@@ -39,17 +44,32 @@ export function readMedia(rel: string): Buffer | null {
   }
 }
 
-export const mediaExists = (rel: string) => fs.existsSync(mediaPath(rel));
-
-export function removeMedia(rel: string | null) {
-  if (!rel || rel.startsWith("fixture:")) return;
-  try {
-    fs.rmSync(mediaPath(rel), { force: true });
-  } catch {}
+export async function readMedia(rel: string): Promise<Buffer | null> {
+  if (!rel.startsWith("blob:")) return readLocalMedia(rel);
+  const result = await get(rel.slice(5), { access: "private" });
+  if (result?.statusCode !== 200) return null;
+  return Buffer.from(await new Response(result.stream).arrayBuffer());
 }
 
-export function removePlayerMedia(playerId: string) {
-  fs.rmSync(path.join(mediaRoot(), playerId), { recursive: true, force: true });
+export async function mediaBody(rel: string): Promise<BodyInit | null> {
+  if (rel.startsWith("blob:")) {
+    const result = await get(rel.slice(5), { access: "private" });
+    return result?.statusCode === 200 ? result.stream : null;
+  }
+  const buf = readLocalMedia(rel);
+  return buf ? new Uint8Array(buf) : null;
+}
+
+export const mediaExists = (rel: string) => rel.startsWith("blob:") || fs.existsSync(mediaPath(rel));
+
+export async function removeMedia(rel: string | null) {
+  if (!rel || rel.startsWith("fixture:")) return;
+  try {
+    if (rel.startsWith("blob:")) await del(rel.slice(5));
+    else fs.rmSync(mediaPath(rel), { force: true });
+  } catch (error) {
+    console.error("删除素材文件失败", error instanceof Error ? error.name : "unknown");
+  }
 }
 
 /** 展示用文件名:去掉路径和控制字符,限制长度 */

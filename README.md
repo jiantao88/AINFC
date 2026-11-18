@@ -23,7 +23,9 @@ npm run build && npm run start -- -p 3100     # 或 npm run dev
 
 在 Vercel 的生产环境变量中设置 `DEMO_MODE=1` 和独立随机的 `AINFC_SECRET`，然后运行 `vercel deploy --prod`。部署会打包 `fixtures/demo/`，并排除本地资料包 `docs/`、运行数据 `data/` 和本地环境变量文件。
 
-线上演示使用内存种子数据库，可通过 `/demo` 查看二维码，使用 DEMO 023 的认领码打开已保存的图文游记并导出卡片。上传、生成和保存需要接入持久化数据库和私有媒体存储。
+线上可写版需要连接 Turso（`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`）和 Vercel 私有 Blob（`BLOB_READ_WRITE_TOKEN` 或 `BLOB_STORE_ID`）。在生产环境设置 `AINFC_DEMO_PASSWORD` 和 `AINFC_CLAIM_SECRET`，使用账号 `demo` 和控制台密码访问 `/demo`。`AINFC_CLAIM_SECRET` 独立派生认领码，可以在保留原二维码地址的同时轮换认领码。LLM 环境变量沿用本地配置，密钥应存为 Vercel Secret。
+
+未接入线上存储时，演示仍可使用内存数据库浏览 DEMO 023 的样例。
 
 ## 控制台
 

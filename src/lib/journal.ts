@@ -22,11 +22,12 @@ export interface Journal {
   note?: string;
 }
 
-const MIN = 300;
 /** 校验时的上限,比提示词里的 850 字宽松一些,避免模型多写几个字就整篇作废 */
 const MAX = 1100;
 
 function systemPrompt(hasMoment: boolean, photoCount: number) {
+  const length = photoCount <= 2 ? "180 到 380" : "550 到 850";
+  const paragraphs = Math.max(3, photoCount + 1);
   return `你是一位写越野跑游记的作者,把一位选手的这次比赛写成一篇像公众号散文那样、有图有文的第一人称游记。读的人是这位选手本人和他的朋友。
 
 素材共三类,只能从中取材:
@@ -49,9 +50,9 @@ function systemPrompt(hasMoment: boolean, photoCount: number) {
 - 照片识别里没有的感官(气味、声音、温度)不写。
 - 不要写配速,不要说"官方认证",不要与他人比较名次。事实里为 null 的内容一律不提。
 
-篇幅和结构(这是最重要的要求,写短了就是不合格):
-- 全文 600 到 850 个汉字。一共有 ${photoCount} 张照片,正文分成 ${photoCount + 1} 段左右,每段 100 到 160 字,段与段之间空一行。不用列表、小标题、表情。
-- 每段要有展开:一个具体的动作或场景,加上当时的感受,再接一句过渡到下一段。不要一段只写两三句。
+篇幅和结构:
+- 正文约 ${length} 个汉字。共有 ${photoCount} 张照片,正文分成约 ${paragraphs} 段,段与段之间空一行。不用列表、小标题、表情。
+- 每段把一个有素材依据的动作、画面或感受写清楚。素材少时写短些,避免重复和补造细节。
 - 每张照片都必须引用一次:写到某张照片里的内容时,在这一段后面另起一行,单独写 [图N](N 是照片编号),前后各空一行。图要分散在全文里,一段后面只放一张,不要把几张图连在一起,也不要全放在结尾。
 - 第一段之前不要放图。图的内容要和它前面那一段对得上。
 - 没有识别结果的照片也要引用:把它放在前后段落自然衔接的位置,这一段只写前后的衔接,不要描述它的内容。
@@ -85,6 +86,7 @@ export function templateJournal(input: JournalInput): Journal {
 }
 
 export interface WriteOptions {
+  signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   forceError?: boolean;
 }
@@ -98,7 +100,9 @@ export async function writeJournal(input: JournalInput, opts: WriteOptions = {})
   const sources = [input.moment, ...input.photos.filter((p): p is PhotoReading => !!p).map(readingText)].join("。");
   const doFetch = opts.fetchImpl ?? fetch;
   let lastReasons: string[] = [];
+  const min = input.photos.length <= 2 ? 120 : 300;
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (opts.signal?.aborted) return fallback("模型调用超时,使用固定模板游记");
     try {
       const hint = lastReasons.length ? `\n\n上一版不合格:${lastReasons.join(";")}。请严格按规则重写。` : "";
       const res = await doFetch(`${cfg.baseUrl}/chat/completions`, {
@@ -114,7 +118,7 @@ export async function writeJournal(input: JournalInput, opts: WriteOptions = {})
             { role: "user", content: userPrompt(input, hint) },
           ],
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
       });
       if (!res.ok) return fallback(`模型返回 ${res.status},使用固定模板游记`);
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -129,7 +133,7 @@ export async function writeJournal(input: JournalInput, opts: WriteOptions = {})
       const rawBody = typeof o.body === "string" ? o.body.trim() : "";
       // 占位符只是位置标记:校验时剥掉(避免 [图2] 的 2 被当成正文数字),存储时保留并整理
       const body = normalizeJournalBody(rawBody, input.photos.length);
-      const check = checkText(`${title}\n${stripMarkers(body)}`, input.facts, { min: MIN, max: MAX, sources });
+      const check = checkText(`${title}\n${stripMarkers(body)}`, input.facts, { min, max: MAX, sources });
       if (check.ok && title) return { title, body, source: "llm" };
       lastReasons = check.ok ? ["缺少标题"] : check.reasons;
     } catch (e) {

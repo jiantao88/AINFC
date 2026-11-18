@@ -9,9 +9,9 @@ const TIME_RE = /^(\d{1,3}):([0-5]\d):([0-5]\d)$/;
 
 /** 保存用户核对后的成绩。这是用户自己确认的值,不标为官方认证 */
 export const PUT = guarded(async (req, pid) => {
-  const player = getPlayer(pid)!;
+  const player = (await getPlayer(pid))!;
   if (player.status === "generating") return err(409, "正在生成中,暂时不能修改成绩");
-  const ev = getEvent(player.event_id);
+  const ev = await getEvent(player.event_id);
 
   let body: Record<string, unknown>;
   try {
@@ -37,29 +37,29 @@ export const PUT = guarded(async (req, pid) => {
     groupRank = r;
   }
 
-  const ocr = getOcr(pid);
-  const prev = getScore(pid);
+  const ocr = await getOcr(pid);
+  const prev = await getScore(pid);
   let source: Score["source"] = "user_manual";
   if (ocr && !ocr.error && ocr.elapsedTime) {
     source = ocr.elapsedTime === elapsedTime && ocr.groupRank === groupRank ? "user_confirmed_ocr" : "user_edited";
   }
   const score: Score = { elapsedTime, groupId: group.id, groupName: group.name, groupRank, source, confirmedAt: Date.now() };
-  run("INSERT OR REPLACE INTO scores (player_id, json) VALUES (?, ?)", pid, JSON.stringify(score));
+  await run("INSERT OR REPLACE INTO scores (player_id, json) VALUES (?, ?)", pid, JSON.stringify(score));
   // 待确认的预览里的成绩是旧值时,预览作废,要求用新成绩重新生成
   const changed =
     !prev || prev.elapsedTime !== score.elapsedTime || prev.groupId !== score.groupId || prev.groupRank !== score.groupRank;
   if (changed && player.status === "pending_confirmation") {
-    run("DELETE FROM previews WHERE player_id=?", pid);
-    run("UPDATE players SET status='draft' WHERE id=?", pid);
+    await run("DELETE FROM previews WHERE player_id=?", pid);
+    await run("UPDATE players SET status='draft' WHERE id=?", pid);
   }
-  reconcileAfterMaterialChange(pid);
+  await reconcileAfterMaterialChange(pid);
   return json({ ok: true, score });
 });
 
-export const DELETE = guarded((_req, pid) => {
-  const player = getPlayer(pid)!;
+export const DELETE = guarded(async (_req, pid) => {
+  const player = (await getPlayer(pid))!;
   if (player.status === "generating") return err(409, "正在生成中,暂时不能修改成绩");
-  run("DELETE FROM scores WHERE player_id=?", pid);
-  reconcileAfterMaterialChange(pid);
+  await run("DELETE FROM scores WHERE player_id=?", pid);
+  await reconcileAfterMaterialChange(pid);
   return json({ ok: true });
 });

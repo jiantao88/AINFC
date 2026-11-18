@@ -2,70 +2,71 @@ import path from "node:path";
 import { demoGuard, clearSessionsFor } from "@/lib/auth";
 import { err, json } from "@/lib/api";
 import { startGeneration } from "@/lib/agent";
-import { all, db, run } from "@/lib/db";
+import { all, one, run, tx } from "@/lib/db";
 import { DEMO_PHOTOS_DIR, readOnlyDemo } from "@/lib/config";
-import { removePlayerMedia } from "@/lib/media";
-import { getEvent, getPlayer, getPreview, getSaved, listMaterials, setStatus } from "@/lib/players";
+import { removeMedia } from "@/lib/media";
+import { getEvent, getPlayer, getPreview, listMaterials, setStatus } from "@/lib/players";
 import { attachFixtureFile, seedAll } from "@/lib/seed";
 import type { Score } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
-const FAULTS = ["upload_fail", "ocr_fail", "vision_fail", "llm_fail", "generate_fail"] as const;
+const FAULTS = ["upload_fail", "ocr_fail", "vision_fail", "llm_fail", "generate_fail"];
 
-function wipePlayerData(pid: string) {
-  for (const t of ["materials", "scores", "ocr", "jobs", "previews", "saved_cards", "faults", "claim_attempts", "moments", "readings"]) {
-    run(`DELETE FROM ${t} WHERE player_id=?`, pid);
+async function wipePlayerData(pid: string) {
+  const media = await all<{ path: string | null }>("SELECT path FROM materials WHERE player_id=?", pid);
+  for (const table of ["materials", "scores", "ocr", "jobs", "previews", "saved_cards", "faults", "claim_attempts", "moments", "readings"]) {
+    await run(`DELETE FROM ${table} WHERE player_id=?`, pid);
   }
-  removePlayerMedia(pid);
+  await clearSessionsFor(pid);
+  return media.map((m) => m.path);
 }
 
-function resetAll() {
-  db();
-  for (const p of all<{ id: string }>("SELECT id FROM players")) {
-    wipePlayerData(p.id);
-    clearSessionsFor(p.id);
-  }
-  run("DELETE FROM tags");
-  run("DELETE FROM players");
-  seedAll();
+async function resetAll() {
+  const media = await tx(async () => {
+    const paths: (string | null)[] = [];
+    for (const p of await all<{ id: string }>("SELECT id FROM players")) paths.push(...await wipePlayerData(p.id));
+    await run("DELETE FROM tags");
+    await run("DELETE FROM players");
+    await seedAll();
+    return paths;
+  });
+  await Promise.all(media.map(removeMedia));
 }
 
 /** 给选手补齐一套演示素材(照片、参考路线、成绩),模拟"已上传、已核对" */
-function fillMaterials(pid: string) {
-  const p = getPlayer(pid)!;
-  const ev = getEvent(p.event_id);
-  if (listMaterials(pid, "photo").length === 0) {
-    // 三张 AI 合成演示照片，缺失时跳过。部署时由 outputFileTracingIncludes 打包。
+async function fillMaterials(pid: string) {
+  const p = await getPlayer(pid);
+  if (!p) return;
+  const ev = await getEvent(p.event_id);
+  if ((await listMaterials(pid, "photo")).length === 0) {
     for (const f of ["02-山脊奔跑.png", "01-林间爬坡.png", "03-完赛合影.png"]) {
-      attachFixtureFile(pid, "photo", path.join(/* turbopackIgnore: true */ DEMO_PHOTOS_DIR, f));
+      await attachFixtureFile(pid, "photo", path.join(/* turbopackIgnore: true */ DEMO_PHOTOS_DIR, f));
     }
   }
-  if (!all("SELECT 1 FROM moments WHERE player_id=?", pid).length) {
-    run(
-      "INSERT INTO moments (player_id, text, drafted_by_ai, updated_at) VALUES (?,?,?,?)",
-      pid,
-      "上坡的时候腿很沉,可回头看到山下的城市亮起来,突然觉得这一路很值。最后和朋友们一起举起奖牌的时候,我笑得停不下来。",
-      0,
-      Date.now(),
-    );
-  }
-  if (listMaterials(pid, "route").length === 0 && ev.referenceRoute) {
-    attachFixtureFile(pid, "route", ev.referenceRoute.file);
-    const row = all<{ id: string; meta: string | null }>("SELECT id, meta FROM materials WHERE player_id=? AND kind='route'", pid)[0];
+  await run(
+    "INSERT OR IGNORE INTO moments (player_id, text, drafted_by_ai, updated_at) VALUES (?,?,?,?)",
+    pid,
+    "上坡的时候腿很沉,可回头看到山下的城市亮起来,突然觉得这一路很值。最后和朋友们一起举起奖牌的时候,我笑得停不下来。",
+    0,
+    Date.now(),
+  );
+  if (ev.referenceRoute && (await listMaterials(pid, "route")).length === 0) {
+    const id = await attachFixtureFile(pid, "route", ev.referenceRoute.file);
+    const row = id ? await one<{ meta: string | null }>("SELECT meta FROM materials WHERE id=?", id) : null;
     if (row?.meta) {
-      const m = JSON.parse(row.meta);
-      m.kind = "reference";
-      m.stats = { ...m.stats, ascentM: null, durationSec: null };
-      run("UPDATE materials SET meta=? WHERE id=?", JSON.stringify(m), row.id);
+      const meta = JSON.parse(row.meta);
+      meta.stats = { ...meta.stats, ascentM: null, durationSec: null };
+      await run("UPDATE materials SET meta=? WHERE id=?", JSON.stringify(meta), id);
     }
   }
-  const has = all("SELECT 1 FROM scores WHERE player_id=?", pid).length > 0;
-  if (!has) {
-    const g = ev.groups[0];
-    const score: Score = { elapsedTime: "01:42:36", groupId: g.id, groupName: g.name, groupRank: 12, source: "demo_seed", confirmedAt: Date.now() };
-    run("INSERT INTO scores (player_id, json) VALUES (?, ?)", pid, JSON.stringify(score));
-  }
+  const group = ev.groups[0];
+  const score: Score = {
+    elapsedTime: "01:42:36", groupId: group.id, groupName: group.name, groupRank: 12,
+    source: "demo_seed", confirmedAt: Date.now(),
+  };
+  await run("INSERT OR IGNORE INTO scores (player_id, json) VALUES (?, ?)", pid, JSON.stringify(score));
 }
 
 export async function POST(req: Request) {
@@ -76,68 +77,58 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return err(400, "bad json");
+    return err(400, "请求内容无法读取");
   }
-  const action = body.action;
-  db();
+  const action = body?.action;
 
   if (action === "reset_all") {
-    resetAll();
+    await resetAll();
     return json({ ok: true });
   }
 
-  const pid = typeof body.playerId === "string" ? body.playerId : "";
-  const p = getPlayer(pid);
-  if (!p) return err(404, "选手不存在");
+  const pid = typeof body?.playerId === "string" ? body.playerId : "";
+  if (!await getPlayer(pid)) return err(404, "选手不存在");
 
   if (action === "set_fault") {
     const kind = body.kind as string;
-    if (!(FAULTS as readonly string[]).includes(kind)) return err(400, "未知故障类型");
-    if (body.on) run("INSERT OR IGNORE INTO faults (player_id, kind) VALUES (?,?)", pid, kind);
-    else run("DELETE FROM faults WHERE player_id=? AND kind=?", pid, kind);
+    if (!FAULTS.includes(kind)) return err(400, "未知故障类型");
+    if (body.on) await run("INSERT OR IGNORE INTO faults (player_id, kind) VALUES (?,?)", pid, kind);
+    else await run("DELETE FROM faults WHERE player_id=? AND kind=?", pid, kind);
     return json({ ok: true });
   }
 
   if (action === "make_state") {
-    const target = body.state as string;
-    if (p.status === "unclaimed") run("UPDATE players SET status='claimed_empty', claimed_at=? WHERE id=?", Date.now(), pid);
-    if (target === "draft") {
-      fillMaterials(pid);
-      run("DELETE FROM previews WHERE player_id=?", pid);
-      setStatus(pid, "draft");
-      return json({ ok: true });
-    }
-    if (target === "pending_confirmation") {
-      fillMaterials(pid);
-      const r = startGeneration(pid);
-      if (!r.ok) return err(409, r.reason);
-      // 真实跑一遍 Agent,等它结束,不塞假预览
-      for (let i = 0; i < 400; i++) {
-        await new Promise((res) => setTimeout(res, 150));
-        const j = all<{ status: string }>("SELECT status FROM jobs WHERE id=?", r.jobId)[0];
-        if (j && (j.status === "succeeded" || j.status === "failed")) break;
+    const target = body.state;
+    if (target !== "draft" && target !== "pending_confirmation" && target !== "generating") return err(400, "未知状态");
+    const prepared = await tx(async () => {
+      const player = await getPlayer(pid);
+      if (!player || player.status === "generating") return false;
+      if (player.status === "unclaimed") {
+        await run("UPDATE players SET status='claimed_empty', claimed_at=? WHERE id=?", Date.now(), pid);
       }
-      return json({ ok: true, hasPreview: !!getPreview(pid) });
-    }
-    if (target === "generating") {
-      // 慢速真实任务,方便肉眼看到各步骤的状态变化
-      fillMaterials(pid);
-      process.env.AGENT_STEP_DELAY_MS = "4000";
-      const r = startGeneration(pid);
-      if (!r.ok) return err(409, r.reason);
-      setTimeout(() => {
-        delete process.env.AGENT_STEP_DELAY_MS;
-      }, 20_000);
-      return json({ ok: true, jobId: r.jobId, note: "约 16 秒后进入待确认" });
-    }
-    return err(400, "未知状态");
+      await fillMaterials(pid);
+      if (target === "draft") {
+        await run("DELETE FROM previews WHERE player_id=?", pid);
+        await setStatus(pid, "draft");
+      }
+      return true;
+    });
+    if (!prepared) return err(409, "正在生成中");
+    if (target === "draft") return json({ ok: true });
+
+    const result = await startGeneration(pid, { wait: target === "pending_confirmation", delayMs: target === "generating" ? 4000 : 0 });
+    if (!result.ok) return err(409, result.reason);
+    return target === "pending_confirmation" ? json({ ok: true, hasPreview: !!(await getPreview(pid)) }) : json(result);
   }
 
   if (action === "reset_player") {
-    wipePlayerData(pid);
-    clearSessionsFor(pid);
-    run("UPDATE players SET status='unclaimed', claimed_at=NULL WHERE id=?", pid);
-    return json({ ok: true, keptSaved: !!getSaved(pid) });
+    const media = await tx(async () => {
+      const paths = await wipePlayerData(pid);
+      await run("UPDATE players SET status='unclaimed', claimed_at=NULL WHERE id=?", pid);
+      return paths;
+    });
+    await Promise.all(media.map(removeMedia));
+    return json({ ok: true, keptSaved: false });
   }
 
   return err(400, "未知操作");

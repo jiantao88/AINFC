@@ -1,6 +1,6 @@
 import { claim, cookieOptions, COOKIE_NAME, isSecureRequest } from "@/lib/auth";
 import { err, json } from "@/lib/api";
-import { getPlayer, playerByTag } from "@/lib/players";
+import { playerByTag } from "@/lib/players";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,11 @@ export async function POST(req: Request) {
   }
   const tag = typeof body.tag === "string" ? body.tag.slice(0, 40) : "";
   const code = typeof body.code === "string" ? body.code : "";
-  const player = playerByTag(tag);
-  if (!player || !getPlayer(player.id)) return err(404, "标签无效");
+  const player = await playerByTag(tag);
+  if (!player) return err(404, "标签无效");
   if (!code.trim()) return err(400, "请输入认领码");
 
-  const r = claim(player.id, code);
+  const r = await claim(player.id, code);
   if (!r.ok) {
     if (r.reason === "locked") return err(429, `尝试次数过多,请 ${r.retryAfterSec} 秒后再试`, { code: "locked", retryAfterSec: r.retryAfterSec });
     if (r.reason === "wrong_code") return err(401, `认领码不正确,还可尝试 ${r.left} 次`, { code: "wrong_code", left: r.left });

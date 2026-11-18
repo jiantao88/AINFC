@@ -7,6 +7,7 @@ export type Status =
   | "saved";
 
 export type MaterialKind = "photo" | "route" | "score_image";
+export const INLINE_UPLOAD_MAX = 4 * 1024 * 1024;
 
 export interface EventGroup {
   id: string;
@@ -126,6 +127,7 @@ export interface State {
     groups: EventGroup[];
     heroUrl: string;
     imageMaxBytes: number;
+    directUpload?: boolean;
     maxPhotos: number;
     referenceRouteAvailable: boolean;
   };

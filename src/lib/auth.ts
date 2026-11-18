@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { createHmac } from "node:crypto";
 import { LIMITS, demoMode, readOnlyDemo } from "./config";
-import { all, db, one, run, tx, type PlayerRow } from "./db";
+import { all, one, run, tx, type PlayerRow } from "./db";
 import { claimCodeFor, newId, normalizeClaimCode, safeEqual, secret, sha256 } from "./secret";
 
 const COOKIE = "ainfc_session";
@@ -11,50 +11,51 @@ export type ClaimResult =
   | { ok: false; reason: "wrong_code" | "locked" | "already_claimed" | "not_found"; retryAfterSec?: number; left?: number };
 
 /** 认领:凭独立认领码,不凭公开的号码或标签网址。失败次数过多会短暂锁定 */
-export function claim(playerId: string, codeInput: string): ClaimResult {
-  db();
-  const player = one<PlayerRow>("SELECT * FROM players WHERE id=?", playerId);
-  if (!player) return { ok: false, reason: "not_found" };
-
+export async function claim(playerId: string, codeInput: string): Promise<ClaimResult> {
   const now = Date.now();
   const expected = claimCodeFor(playerId);
   const given = normalizeClaimCode(codeInput.slice(0, 32));
   if (readOnlyDemo()) {
+    if (!await one("SELECT 1 FROM players WHERE id=?", playerId)) return { ok: false, reason: "not_found" };
     if (!safeEqual(given, expected)) return { ok: false, reason: "wrong_code", left: LIMITS.claimMaxFails };
-    const payload = `${player.id}.${now + LIMITS.sessionMaxAgeSec * 1000}`;
+    const payload = `${playerId}.${now + LIMITS.sessionMaxAgeSec * 1000}`;
     return { ok: true, token: `${payload}.${signDemoSession(payload)}` };
   }
 
-  const attempts = one<{ fails: number; locked_until: number }>("SELECT * FROM claim_attempts WHERE player_id=?", playerId);
-  if (attempts && attempts.locked_until > now) {
-    return { ok: false, reason: "locked", retryAfterSec: Math.ceil((attempts.locked_until - now) / 1000) };
-  }
+  return tx(async () => {
+    const player = await one<PlayerRow>("SELECT * FROM players WHERE id=?", playerId);
+    if (!player) return { ok: false, reason: "not_found" };
+    const attempts = await one<{ fails: number; locked_until: number }>("SELECT * FROM claim_attempts WHERE player_id=?", playerId);
+    if (attempts && attempts.locked_until > now) {
+      return { ok: false, reason: "locked", retryAfterSec: Math.ceil((attempts.locked_until - now) / 1000) };
+    }
 
-  if (!safeEqual(given, expected)) {
-    const fails = (attempts?.fails ?? 0) + 1;
-    const lock = fails >= LIMITS.claimMaxFails;
-    run(
-      "INSERT INTO claim_attempts (player_id, fails, locked_until) VALUES (?,?,?) ON CONFLICT(player_id) DO UPDATE SET fails=excluded.fails, locked_until=excluded.locked_until",
-      playerId,
-      lock ? 0 : fails,
-      lock ? now + LIMITS.claimLockMs : 0,
-    );
-    if (lock) return { ok: false, reason: "locked", retryAfterSec: Math.ceil(LIMITS.claimLockMs / 1000) };
-    return { ok: false, reason: "wrong_code", left: LIMITS.claimMaxFails - fails };
-  }
+    if (!safeEqual(given, expected)) {
+      const fails = (attempts?.fails ?? 0) + 1;
+      const lock = fails >= LIMITS.claimMaxFails;
+      await run(
+        "INSERT INTO claim_attempts (player_id, fails, locked_until) VALUES (?,?,?) ON CONFLICT(player_id) DO UPDATE SET fails=excluded.fails, locked_until=excluded.locked_until",
+        playerId,
+        lock ? 0 : fails,
+        lock ? now + LIMITS.claimLockMs : 0,
+      );
+      if (lock) return { ok: false, reason: "locked", retryAfterSec: Math.ceil(LIMITS.claimLockMs / 1000) };
+      return { ok: false, reason: "wrong_code", left: LIMITS.claimMaxFails - fails };
+    }
 
-  run("DELETE FROM claim_attempts WHERE player_id=?", playerId);
-  const token = createSession(playerId);
-  if (player.status === "unclaimed") {
-    run("UPDATE players SET status='claimed_empty', claimed_at=? WHERE id=?", now, playerId);
-  }
-  return { ok: true, token };
+    await run("DELETE FROM claim_attempts WHERE player_id=?", playerId);
+    const token = await createSession(playerId);
+    if (player.status === "unclaimed") {
+      await run("UPDATE players SET status='claimed_empty', claimed_at=? WHERE id=?", now, playerId);
+    }
+    return { ok: true, token };
+  });
 }
 
-export function createSession(playerId: string): string {
+async function createSession(playerId: string): Promise<string> {
   const token = newId(32);
   const now = Date.now();
-  run(
+  await run(
     "INSERT INTO sessions (token_hash, player_id, created_at, expires_at) VALUES (?,?,?,?)",
     sha256(token),
     playerId,
@@ -84,14 +85,13 @@ export async function sessionPlayerIds(): Promise<string[]> {
   return playerIdsForToken(token);
 }
 
-export function playerIdsForToken(token: string): string[] {
+export async function playerIdsForToken(token: string): Promise<string[]> {
   if (readOnlyDemo()) {
     const [id, expires, signature, extra] = token.split(".");
     if (!id || !expires || !signature || extra !== undefined || !(Number(expires) > Date.now())) return [];
     return safeEqual(signature, signDemoSession(`${id}.${expires}`)) ? [id] : [];
   }
-  db();
-  const rows = all<{ player_id: string }>(
+  const rows = await all<{ player_id: string }>(
     "SELECT player_id FROM sessions WHERE token_hash=? AND expires_at>?",
     sha256(token),
     Date.now(),
@@ -113,14 +113,14 @@ export function tokenFromRequest(req: Request): string | null {
   return null;
 }
 
-export function authorize(req: Request, playerId: string): boolean {
+export async function authorize(req: Request, playerId: string): Promise<boolean> {
   const token = tokenFromRequest(req);
   if (!token) return false;
-  return playerIdsForToken(token).includes(playerId);
+  return (await playerIdsForToken(token)).includes(playerId);
 }
 
-export function clearSessionsFor(playerId: string) {
-  run("DELETE FROM sessions WHERE player_id=?", playerId);
+export async function clearSessionsFor(playerId: string) {
+  await run("DELETE FROM sessions WHERE player_id=?", playerId);
 }
 
 export function isSecureRequest(req: Request): boolean {
@@ -133,5 +133,3 @@ export function isSecureRequest(req: Request): boolean {
 export function demoGuard(): Response | null {
   return demoMode() ? null : new Response("not found", { status: 404 });
 }
-
-export { tx };

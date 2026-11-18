@@ -29,7 +29,7 @@ const long = (extra: string) =>
   `2026-11-15,我站在西山越野记忆体验赛的起点。${extra}用时 01:42:36,组别第 12 名,轨迹 9.95 公里,累计爬升 722 米。` +
   "秋天的林子里满是落叶,石阶一层一层往上,我数着呼吸往前走。回头望去,身后是一路的光。" +
   "下坡的时候风从耳边过去,我什么也没想,只听见自己的脚步一下一下落在石头上,心里特别安静。";
-/** writeJournal 的内置下限是 300 字,这里把样本补长到 300 字以上 */
+/** 多照片游记的长文样本 */
 const full = (extra: string) =>
   long(extra) +
   "\n\n后来路变窄了,前面的人影在树干之间时隐时现,我盯着那一抹橙色的衣角,一步一步跟上去。落叶踩上去软软的,鞋底和石头碰出轻轻的响声。" +
@@ -143,11 +143,17 @@ describe("writeJournal", () => {
     expect(j.body).toContain("\n\n[图2]");
     expect(j.body).not.toContain("[图9]");
   });
-  it("正文太短(不足 300 字)→ 不采用,重试后回退模板", async () => {
+  it("单张照片允许使用不足 300 字的游记", async () => {
+    const body = long("我哭了。");
+    expect(body.length).toBeLessThan(300);
+    const j = await withKey(() => writeJournal(input, { fetchImpl: reply({ title: "林间脚步", body }) }));
+    expect(j.source).toBe("llm");
+  });
+  it("正文过短 → 不采用,重试后回退模板", async () => {
     let calls = 0;
     const f = (async () => {
       calls++;
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: "这一天", body: long("我哭了。") }) } }] }));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: "这一天", body: "我沿着落叶覆盖的小径往上走。" }) } }] }));
     }) as unknown as typeof fetch;
     const j = await withKey(() => writeJournal(input, { fetchImpl: f }));
     expect(calls).toBe(3);

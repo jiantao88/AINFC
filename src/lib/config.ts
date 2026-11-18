@@ -3,11 +3,19 @@ import fs from "node:fs";
 
 export const ROOT = process.cwd();
 export const hosted = process.env.VERCEL === "1";
-export const readOnlyDemo = () => hosted;
+export const cloudDatabase = () => {
+  const url = process.env.TURSO_DATABASE_URL;
+  const authToken = process.env.TURSO_AUTH_TOKEN;
+  return url && authToken ? { url, authToken } : null;
+};
+export const cloudMedia = () => !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+export const readOnlyDemo = () => hosted && (
+  !cloudDatabase() || !cloudMedia() || (demoMode() && !(process.env.AINFC_DEMO_PASSWORD && process.env.AINFC_CLAIM_SECRET))
+);
 /** 每次调用都读环境变量,测试可以把数据目录指向临时目录 */
 export const dataDir = () => process.env.AINFC_DATA_DIR ?? path.join(ROOT, "data");
 const localFixtures = path.join(ROOT, "docs", "demo-fixtures");
-export const FIXTURES_DIR = !hosted && fs.existsSync(path.join(localFixtures, "event.json"))
+export const FIXTURES_DIR = !hosted && !cloudDatabase() && fs.existsSync(path.join(localFixtures, "event.json"))
   ? localFixtures
   : path.join(ROOT, "fixtures", "demo");
 export const DEMO_PHOTOS_DIR = FIXTURES_DIR === localFixtures
